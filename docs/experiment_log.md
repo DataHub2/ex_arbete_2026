@@ -60,3 +60,50 @@ Q: What is the company's pension plan?   (not covered by any policy)
 1. **Decision point (30 Oct): Variant A works.** Variant B is kept as planned.
 2. **Retrieval errors become answer errors.** *Information classes* was not retrieved for the Copilot question. The model filled the gap with general knowledge ("a contract *typically* contains confidential information") and made a false claim about the policy ("the policy does not explicitly state that customer contracts cannot be used"). → Supports measuring retrieval and correctness separately, and motivates always including hard rules in the system prompt in Variant B.
 3. **The baseline already declines obvious out-of-scope questions.** → The test set needs harder trap questions that are close to policy topics (e.g. unlisted AI tools, travel allowance, edge cases of eligibility rules). Otherwise no difference between A and B can be measured for refusal.
+
+## 2026-10-31 – Test set, and first measured run (dev split) / N
+
+**Test set:** 40 questions in `data/questions/questions.jsonl` 10 development
+(`dev_*`) and 30 held out until later (probably in W48) as scheduled (`final_*`). 
+Six types: single_section, multi_section, statutory_vs_company, hard_rule, near_miss and out_of_scope.
+`gold_chunk_ids` is the minimal sufficient set: the chunks that must all be
+retrieved for a grounded answer. Out-of-scope questions have none and are scored
+on whether the answer declines.
+
+**Setup:** Notebook `04_run_experiment`, Variant A, dev split, top-k = 3,
+`databricks-meta-llama-3-3-70b-instruct`, temperature 0. Retrieval, prompt and
+model call are the same as in `03_variant_a`; this run also writes one row per
+question to `workspace.policy_rag.experiment_runs`. Answers and contexts can
+be graded later without calling the model again.
+
+**Retrieval:**
+
+| question_type | n | recall@k | MRR | full |
+|---|---|---|---|---|
+| hard_rule | 2 | 0.50 | 0.50 | 1/2 |
+| multi_section | 2 | 0.50 | 0.50 | 1/2 |
+| single_section | 2 | 1.00 | 1.00 | 2/2 |
+| statutory_vs_company | 1 | 1.00 | 1.00 | 1/1 |
+
+**Observations:**
+
+1. **Both failures are the same two chunks.** `dev_03` (contract into Copilot)
+   and `dev_07` (medical certificate into Nordljus Assistant) each scored
+   recall 0.00, and in both cases the missing chunks were `04_ai_policy__02` (Information classes) 
+   and `04_ai_policy__03` (Hard rules). 
+   These hold the policy's classification scheme and its hard rules, the parts
+   a question has to be reasoned against rather than matched against. 
+   Retrieval instead favours chunks that share wording with the question. 
+   This extends the 2026-10-28 observation from one question to a repeatable category.
+2. **Direct consequence for Variant B.** The hard rules should be placed in the
+   system prompt rather than left to retrieval, since the questions that need
+   them are the ones that do not retrieve them.
+3. `single_section` and `statutory_vs_company` at 1.00 confirm that the gold
+   chunk ids and the pipeline itself are correct.
+4. **Caveat on the metric.** `dev_03` has two valid grounding paths:
+   `__02` + `__03`, or `__02` + `__01`. Only the first is recorded as gold, so a
+   run retrieving the second is scored as a miss. Recall may therefore understate
+   the system slightly. Either record alternative sufficient sets before the final run, 
+   or state the convention in the method chapter.
+5. n = 1–2 per type on the dev split. These are directions to test on the 30
+   final questions, not results.
