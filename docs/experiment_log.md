@@ -38,3 +38,25 @@ Q: What is the company's pension plan?   (not covered by any policy)
 1. Single-section questions retrieve the correct chunk at rank 1, also when the wording differs from the document ("kid is sick" → "care of a sick child").
 2. **Multi-section questions are weak.** The Copilot question needs both *Information classes* (a contract is Confidential) and *Approved AI tools* / *Hard rules*. Only *Approved AI tools* was retrieved (rank 2); *Information classes* was missing. → Candidate failure category for RQ3.
 3. **Score threshold alone is not enough for refusal.** The out-of-scope pension question had the lowest top score (0.531), but the margin to valid questions is small (0.566). → Refusal in Variant B must rely on the LLM judging whether the context answers the question, not only on a score threshold.
+
+
+
+## 2026-10-31 – First end-to-end run of Variant A
+
+**Setup:** Notebook `03_variant_a`. Retrieval top-k = 3, answer model 'databricks-meta-llama-3-3-70b-instruct', temperature 0, simple system prompt (no citations, no refusal instructions, no hard rules).
+
+**Results (summary):**
+
+| Question | Result |
+|---|---|
+| Vacation days at Nordljus | Correct (30, and 25 for fixed-term) |
+| Vacation days in Sweden | Correct, separated statutory 25 from Nordljus 30. Hallucinated "16 public holidays" from the Playground test was gone |
+| Can I stay home when my kid is sick? | Correct and complete |
+| Customer contract in M365 Copilot | Partly correct, partly ungrounded (see below) |
+| Pension plan (out of scope) | Correctly declined, referred to HR |
+
+**Observations:**
+
+1. **Decision point (30 Oct): Variant A works.** Variant B is kept as planned.
+2. **Retrieval errors become answer errors.** *Information classes* was not retrieved for the Copilot question. The model filled the gap with general knowledge ("a contract *typically* contains confidential information") and made a false claim about the policy ("the policy does not explicitly state that customer contracts cannot be used"). → Supports measuring retrieval and correctness separately, and motivates always including hard rules in the system prompt in Variant B.
+3. **The baseline already declines obvious out-of-scope questions.** → The test set needs harder trap questions that are close to policy topics (e.g. unlisted AI tools, travel allowance, edge cases of eligibility rules). Otherwise no difference between A and B can be measured for refusal.
