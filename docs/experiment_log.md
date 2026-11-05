@@ -112,7 +112,7 @@ be graded later without calling the model again.
 
 
 
-   ## 2026-11-05 – LLM judge on the dev run / N
+## 2026-11-05 – LLM judge on the dev run / N
 
 **Setup:** Notebook `05_evaluate`, judge `databricks-gpt-oss-120b`, temperature 0.
 Graded run `20261031T191325Z-09e6e4` (`variant_a_dev_01`, Variant A, 10 questions).
