@@ -7,6 +7,17 @@ SYSTEM_PROMPT_A = (
     "of Nordljus Consulting AB. Use the context below to answer the question."
 )
 
+# Verbatim from data/policies/04_ai_policy.md, section "Hard rules".
+# Always in Variant B's system prompt, so the rules apply even when
+# retrieval misses that section (see dev_03 in docs/experiment_log.md).
+HARD_RULES = """\
+1. Strictly Confidential information must never be entered into any AI tool.
+2. Confidential information may only be entered into Nordljus Assistant.
+3. Personal data about clients, candidates or colleagues must not be entered into AI tools unless it has first been removed or anonymised, with the exception of Nordljus Assistant.
+4. AI must never make decisions about hiring, dismissal, salary or the assessment of individual people. AI may be used as support, but the decision must always be made by a human.
+5. Passwords, API keys and other login credentials must never be entered into any AI tool."""
+
+
 # TODO: citations, refusal -> insufficient context, hard AI rules.
 # Excerpts will need labelling here, to be cited...
 SYSTEM_PROMPT_B = None
