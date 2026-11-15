@@ -27,6 +27,12 @@ REFUSAL_INSTRUCTION = (
     f'"{REFUSAL_SENTENCE}" Then suggest contacting HR at hr@nordljus.example.'
 )
 
+CITATION_INSTRUCTION = (
+    "After each statement, cite its source in square brackets using the label shown "
+    "above the excerpt, for example [Policy on the Use of AI at Work > Hard rules]. "
+    "Only cite labels you have been given. Never invent a source."
+)
+
 
 # TODO: citations, refusal -> insufficient context, hard AI rules.
 # Excerpts will need labelling here, to be cited...
