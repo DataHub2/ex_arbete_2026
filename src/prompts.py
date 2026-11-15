@@ -18,6 +18,16 @@ HARD_RULES = """\
 5. Passwords, API keys and other login credentials must never be entered into any AI tool."""
 
 
+# Fixed sentence, so a refusal can be counted exactly instead of interpreted.
+REFUSAL_SENTENCE = "The policies do not cover this question."
+
+REFUSAL_INSTRUCTION = (
+    "Answer only from the information you have been given. Do not use general "
+    "knowledge and do not guess. If it does not contain the answer, reply with exactly: "
+    f'"{REFUSAL_SENTENCE}" Then suggest contacting HR at hr@nordljus.example.'
+)
+
+
 # TODO: citations, refusal -> insufficient context, hard AI rules.
 # Excerpts will need labelling here, to be cited...
 SYSTEM_PROMPT_B = None
