@@ -46,7 +46,11 @@ def build_user_prompt_a(question, chunks):
 
 
 def build_user_prompt_b(question, chunks):
-    raise NotImplementedError("Variant B is W46.")
+    """Each excerpt gets a label to cite, built from its document and section."""
+    context = CONTEXT_SEPARATOR.join(
+        f"[{chunk['document']} > {chunk['section']}]\n{chunk['text']}" for chunk in chunks
+    )
+    return f"Context:\n{context}\n\nQuestion: {question}"
 
 
 _VARIANTS = {
