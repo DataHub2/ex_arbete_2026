@@ -17,6 +17,15 @@ HARD_RULES = """\
 4. AI must never make decisions about hiring, dismissal, salary or the assessment of individual people. AI may be used as support, but the decision must always be made by a human.
 5. Passwords, API keys and other login credentials must never be entered into any AI tool."""
 
+# Verbatim from data/policies/04_ai_policy.md, section "Information classes".
+# The hard rules refer to these classes, so the rules can't be applied without
+# them (dev_03 and dev_07 in the first Variant B dev run, 2026-11-15).
+INFORMATION_CLASSES = """\
+- Public: information that has already been published, for example on nordljus.example.
+- Internal: information for employees, for example internal routines and meeting notes without client details.
+- Confidential: client data, contracts, quotes, financial information and personal data.
+- Strictly Confidential: sensitive personal data (for example health), payroll lists, security information and information that the client has marked as secret."""
+
 
 # Fixed sentence, so a refusal can be counted exactly instead of interpreted.
 REFUSAL_SENTENCE = "The policies do not cover this question."
@@ -41,6 +50,10 @@ def build_system_prompt_b(rules, refusal, citations):
         parts.append(
             "Hard rules from [Policy on the Use of AI at Work > Hard rules]. "
             "They always apply and must never be broken:\n" + HARD_RULES
+        )
+        parts.append(
+            "Information classes from [Policy on the Use of AI at Work > Information classes]. "
+            "The hard rules refer to these classes:\n" + INFORMATION_CLASSES
         )
     if refusal:
         parts.append(REFUSAL_INSTRUCTION)
