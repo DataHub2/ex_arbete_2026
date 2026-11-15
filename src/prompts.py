@@ -34,9 +34,19 @@ CITATION_INSTRUCTION = (
 )
 
 
-# TODO: citations, refusal -> insufficient context, hard AI rules.
-# Excerpts will need labelling here, to be cited...
-SYSTEM_PROMPT_B = None
+def build_system_prompt_b(rules, refusal, citations):
+    """Variant A's prompt plus the Variant B features that are switched on."""
+    parts = [SYSTEM_PROMPT_A]
+    if rules:
+        parts.append(
+            "Hard rules from [Policy on the Use of AI at Work > Hard rules]. "
+            "They always apply and must never be broken:\n" + HARD_RULES
+        )
+    if refusal:
+        parts.append(REFUSAL_INSTRUCTION)
+    if citations:
+        parts.append(CITATION_INSTRUCTION)
+    return "\n\n".join(parts)
 
 
 def build_user_prompt_a(question, chunks):
@@ -53,9 +63,14 @@ def build_user_prompt_b(question, chunks):
     return f"Context:\n{context}\n\nQuestion: {question}"
 
 
+# B is the full variant. The B_* variants switch on one feature each (ablation),
+# so the effect of each feature can be measured on its own.
 _VARIANTS = {
     "A": (SYSTEM_PROMPT_A, build_user_prompt_a),
-    "B": (SYSTEM_PROMPT_B, build_user_prompt_b),
+    "B": (build_system_prompt_b(rules=True, refusal=True, citations=True), build_user_prompt_b),
+    "B_rules": (build_system_prompt_b(rules=True, refusal=False, citations=False), build_user_prompt_a),
+    "B_refusal": (build_system_prompt_b(rules=False, refusal=True, citations=False), build_user_prompt_a),
+    "B_citations": (build_system_prompt_b(rules=False, refusal=False, citations=True), build_user_prompt_b),
 }
 
 
