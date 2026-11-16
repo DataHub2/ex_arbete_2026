@@ -19,7 +19,7 @@ import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
-from src.prompts import CONTEXT_SEPARATOR, HARD_RULES
+from src.prompts import CONTEXT_SEPARATOR, HARD_RULES, INFORMATION_CLASSES
 from src.rag import retrieval_metrics
 
 # Judge must return one of these. 
@@ -183,7 +183,10 @@ def judge_context(row):
     rules when they were in its system prompt (B and B_rules). Without them a
     correct rule-based answer would be graded as ungrounded."""
     context = row["context_text"] or ""
-    if HARD_RULES in (row.get("system_prompt") or ""):
+    system_prompt = row.get("system_prompt") or ""
+    if INFORMATION_CLASSES in system_prompt:
+        context = "Information classes (in the system prompt):\n" + INFORMATION_CLASSES + CONTEXT_SEPARATOR + context
+    if HARD_RULES in system_prompt:
         context = "Hard rules (in the system prompt):\n" + HARD_RULES + CONTEXT_SEPARATOR + context
     return context
 
