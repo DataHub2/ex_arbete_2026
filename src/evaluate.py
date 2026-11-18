@@ -19,6 +19,7 @@ import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 
+from src.prompts import CONTEXT_SEPARATOR, HARD_RULES, INFORMATION_CLASSES
 from src.rag import retrieval_metrics
 
 # Judge must return one of these. 
@@ -177,13 +178,26 @@ def _validate(parsed, in_scope):
     return out
 
 
+def judge_context(row):
+    """What the assistant had to rely on: the retrieved excerpts, plus the hard
+    rules when they were in its system prompt (B and B_rules). Without them a
+    correct rule-based answer would be graded as ungrounded."""
+    context = row["context_text"] or ""
+    system_prompt = row.get("system_prompt") or ""
+    if INFORMATION_CLASSES in system_prompt:
+        context = "Information classes (in the system prompt):\n" + INFORMATION_CLASSES + CONTEXT_SEPARATOR + context
+    if HARD_RULES in system_prompt:
+        context = "Hard rules (in the system prompt):\n" + HARD_RULES + CONTEXT_SEPARATOR + context
+    return context
+
+
 def judge_row(client, cfg, row):
     """Grade one stored run row. Returns the judgment fields and the raw reply."""
     template = JUDGE_IN_SCOPE if row["in_scope"] else JUDGE_OUT_OF_SCOPE
     prompt = template.format(
         question=row["question"],
         gold_answer=row.get("gold_answer") or "",
-        context_text=row["context_text"],
+        context_text=judge_context(row),
         answer=row["answer"],
     )
     raw = _chat(client, cfg, prompt)
@@ -301,7 +315,7 @@ def manual_template(rows):
         "question": r["question"],
         "gold_answer": r.get("gold_answer") or "",
         "answer": r["answer"],
-        "context_text": r["context_text"],
+        "context_text": judge_context(r),
         "correctness": "",      # correct | partial | incorrect     (in-scope)
         "groundedness": "",     # grounded | partial | ungrounded   (in-scope)
         "refusal": "",          # declined | hedged | answered      (out-of-scope)
