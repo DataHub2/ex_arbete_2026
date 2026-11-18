@@ -168,6 +168,58 @@ context that produced it. Judgments in `workspace.policy_rag.evaluation_results`
    judge's alone and should carry that caveat until the agreement figure exists.
 
 
+
+## 2026-11-15 – Judge against manual grading / N
+
+**Setup:** I (Nasser) graded the ten dev questions from run `20261031T191325Z-09e6e4` by hand, 
+using the same labels as the judge, in `manual_grading_20261031T191325Z-09e6e4.csv`. 
+The judge was re-run the same day on the same stored answers and contexts, and the two compared 
+with `agreement` in `src/evaluate.py`.
+
+**Results:**
+
+| dimension | n | exact match | kappa |
+|---|---|---|---|
+| correctness | 7 | 0.57 | 0.00 |
+| groundedness | 7 | 0.57 | 0.22 |
+| refusal | 3 | 1.00 | 1.00 |
+
+Disagreements, judge vs manual:
+
+| question | correctness | groundedness |
+|---|---|---|
+| dev_02 | correct / partial | grounded / partial |
+| dev_03 | correct / partial | partial / ungrounded |
+| dev_07 | correct / partial | partial / ungrounded |
+
+**Observations:**
+
+1. **The judge called every in-scope answer correct.** All seven got `correct`, so it
+   has no spread and nothing to agree about beyond chance. That is why kappa is 0.00
+   while exact match reads 0.57. The judge has no discriminative power on correctness
+   in this run.
+2. **Every disagreement runs the same way.** The judge is more lenient than the human
+   on all six, never stricter. A systematic bias. It appears to read "right conclusion" 
+   as "right answer": `dev_07` reaches the correct no but with a reason the policy never gives, 
+   and the judge still passed it.
+3. **The judge changed its mind since 2026-11-05.** It then graded `dev_02` and
+   `dev_03` as partial / partial. It now grades both, and `dev_07`, as correct. Same model, 
+   same stored answers and contexts, temperature 0. Two things differ: the judge prompt was reworded, 
+   and this is a second run. Revert the prompt to the 2026-11-05 wording and re-run to tell them apart. 
+   If the labels still move, the judge is not reproducible, which matters more than its leniency.
+4. **refusal kappa 1.00 carries no weight.** Three rows, all `declined` on both sides.
+   Zero variance gives kappa 1.00 by definition and says nothing about reliability.
+5. **Consequence.** The judge cannot carry correctness as it stands. Either tighten the
+   rubric in the prompt so it has worked examples of `partial`, or report the manual
+   grading as the primary measure on dev and use the judge as a secondary signal on final. 
+   To be decided before the final run.
+6. **Caveat on independence.** I (Nasser) had seen the judge's reasoning for `dev_02` and `dev_03` 
+   before grading, so three of the ten were not graded blind. The direction of that bias would be 
+   toward agreement, and the measured agreement is low anyway, so it does not explain the result. 
+   A second grader from the group would/could settle it.
+
+
+
 ## 2026-11-15/16 – Variant B on the dev split, v1 and v2 / Z
 
 **Setup:** Branch `feature/variant-b`. Variant B = Variant A's system prompt plus
