@@ -166,3 +166,64 @@ context that produced it. Judgments in `workspace.policy_rag.evaluation_results`
 6. **The judge is not validated yet.** Manual grading of the ten dev questions is
    exported but not done, so no agreement figure exists. The numbers above are the
    judge's alone and should carry that caveat until the agreement figure exists.
+
+
+## 2026-11-15/16 – Variant B on the dev split, v1 and v2 / Z
+
+**Setup:** Branch `feature/variant-b`. Variant B = Variant A's system prompt plus
+three features in `src/prompts.py`: hard rules in the system prompt, a fixed refusal
+sentence, and citations to labelled excerpts. Same retrieval, model and temperature as A.
+Judge `databricks-gpt-oss-120b`, notebook `05_evaluate`. The judge now also sees what
+was in the system prompt (`judge_context` in `src/evaluate.py`), otherwise rule-based
+answers would be graded as ungrounded.
+
+**Incident:** the first B run failed on all 10 questions with `NOT_FOUND: AI Search
+endpoint ... not found`. The Vector Search endpoint had been removed, most likely by
+Free Edition after a period without use. Fixed by re-running `02_vector_index`: the
+endpoint was recreated, the old index (still registered in Unity Catalog, pointing at
+the removed endpoint) was deleted and rebuilt from `policy_chunks`. The retrieval test
+from 2026-10-28 gave identical chunks, ranks and scores, so A's dev run stays comparable.
+
+**Runs:**
+
+| version | run_id | change |
+|---|---|---|
+| B v1 | `20261115T210723Z-7fac1f` | hard rules, refusal, citations |
+| B v2 | `20261116T144015Z-c88b7d` | + Information classes in the system prompt |
+
+**Results (dev, 7 in-scope / 3 out-of-scope):**
+
+| | A | B v1 | B v2 |
+|---|---|---|---|
+| recall@k | 0.71 | 0.71 | 0.71 |
+| correct | 0.71 | 0.57 | 0.86 |
+| grounded | 0.71 | 1.00 | 1.00 |
+| declined | 1.00 | 1.00 | 1.00 |
+| invented_rule | 0.00 | 0.00 | 0.00 |
+
+**Observations:**
+
+1. **Retrieval is unchanged by design.** B only changes prompts, recall@k is
+   identical to A on every question. Differences in answers come from the prompt alone.
+2. **Groundedness went from 0.71 to 1.00.** With the refusal and citation
+   instructions B stopped filling gaps with general knowledge.
+3. **Hard rules alone were not enough (v1).** `dev_03` answered that a contract can be
+   pasted into Copilot "if it is Public or Internal", and `dev_07` reached "no" through
+   rule 3, which actually points to "yes" for Nordljus Assistant. Both rules depend on
+   the information classes, which are defined in another section that was not
+   retrieved. v2 adds that section to the system prompt, and both questions were then
+   answered with the right class and the right rule. The rules can't be applied without
+   the definitions they refer to.
+4. **The judge is not stable.** By mistake the v1 run was graded a second time with
+   unchanged answers. `dev_01` went from partial to correct and `dev_03` from partial
+   to incorrect. Same answers, same prompt, temperature 0. The judge's numbers need
+   manual validation before they are reported.
+5. **The judge is lenient on reasoning.** In v1 it graded `dev_07` correct although the
+   rule it cited argues for the opposite conclusion. It checks the conclusion more than
+   the argument.
+6. **`dev_02` may be a gold answer problem.** The policy says the sick leave "is then
+   registered in the HR Portal" without saying by whom. The gold answer assumes the
+   employee. Review before the final run.
+7. **Still no headroom for refusal on dev.** A and B both declined all three
+   out-of-scope questions. n = 7 in-scope, so one question moves correct by 0.14,
+   these are directions, not results.
