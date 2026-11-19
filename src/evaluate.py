@@ -240,7 +240,12 @@ def _combine(votes, in_scope):
 
 
 def judge_row(client, cfg, row):
-    """Grade one stored run row. Returns the judgment fields and the raw reply."""
+    """Grade one stored run row cfg.n_votes times and combine the votes.
+
+    A vote that fails or gives an unusable label is skipped, the rest still
+    count. Returns the combined judgment, the raw replies and the number of
+    votes used. Raises only if every vote failed.
+    """
     template = JUDGE_IN_SCOPE if row["in_scope"] else JUDGE_OUT_OF_SCOPE
     prompt = template.format(
         question=row["question"],
@@ -248,8 +253,21 @@ def judge_row(client, cfg, row):
         context_text=judge_context(row),
         answer=row["answer"],
     )
-    raw = _chat(client, cfg, prompt)
-    return _validate(_parse(raw), row["in_scope"]), raw
+
+    votes, raws, errors = [], [], []
+    for _ in range(cfg.n_votes):
+        raw = None
+        try:
+            raw = _chat(client, cfg, prompt)
+            votes.append(_validate(_parse(raw), row["in_scope"]))
+        except Exception as exc:  # noqa: BLE001 - kept, raised below if no vote worked
+            errors.append(f"{type(exc).__name__}: {exc}")
+        if raw is not None:
+            raws.append(raw)
+
+    if not votes:
+        raise RuntimeError(f"All {cfg.n_votes} votes failed: " + " | ".join(errors))
+    return _combine(votes, row["in_scope"]), raws, len(votes)
 
 
 # Running
@@ -280,15 +298,18 @@ def evaluate_rows(cfg, rows, client=None, on_progress=None):
             **retrieval_metrics(row),
             "judge_endpoint": cfg.judge_endpoint,
             "judge_version": JUDGE_VERSION,
+            "judge_votes": None,
+            "judge_agreement": None,
             "judge_raw": None,
             "judge_error": None,
             "created_at": datetime.now(timezone.utc),
         }
 
         try:
-            judgment, raw = judge_row(client, cfg, row)
+            judgment, raws, n_votes = judge_row(client, cfg, row)
             evaluation.update(judgment)
-            evaluation["judge_raw"] = raw[:2000]
+            evaluation["judge_votes"] = n_votes
+            evaluation["judge_raw"] = "\n---\n".join(raws)[:6000]
         except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
             evaluation["judge_error"] = f"{type(exc).__name__}: {exc}"
 
@@ -431,7 +452,9 @@ RESULTS_SCHEMA = """
     correctness string, groundedness string, refusal string,
     invented_rule boolean, judge_reason string,
     recall_at_k double, reciprocal_rank double, n_gold_retrieved int,
-    judge_endpoint string, judge_version string, judge_raw string, judge_error string,
+    judge_endpoint string, judge_version string,
+    judge_votes int, judge_agreement double,
+    judge_raw string, judge_error string,
     created_at timestamp
 """
 
