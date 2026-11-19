@@ -56,6 +56,11 @@ class EvalConfig:
 
 # Judge prompts
 
+# Bump when a judge prompt changes, saved with every judgment so grades from
+# different prompts are never mixed. Rows saved before this field existed are v1.
+# v2: correctness checks the reason, not only the conclusion.
+JUDGE_VERSION = "v2"
+
 JUDGE_SYSTEM = (
     "You grade answers given by an assistant that answers employee questions "
     "about internal company policies. Judge only what is in front of you. "
@@ -241,6 +246,7 @@ def evaluate_rows(cfg, rows, client=None, on_progress=None):
             **dict.fromkeys(JUDGMENT_FIELDS),
             **retrieval_metrics(row),
             "judge_endpoint": cfg.judge_endpoint,
+            "judge_version": JUDGE_VERSION,
             "judge_raw": None,
             "judge_error": None,
             "created_at": datetime.now(timezone.utc),
@@ -392,7 +398,7 @@ RESULTS_SCHEMA = """
     correctness string, groundedness string, refusal string,
     invented_rule boolean, judge_reason string,
     recall_at_k double, reciprocal_rank double, n_gold_retrieved int,
-    judge_endpoint string, judge_raw string, judge_error string,
+    judge_endpoint string, judge_version string, judge_raw string, judge_error string,
     created_at timestamp
 """
 
