@@ -77,10 +77,20 @@ The assistant's answer:
 
 Grade two things, independently of each other.
 
-correctness — does the answer match the reference answer?
-  "correct"   every claim matches, nothing important is missing
-  "partial"   partly right, or right but missing a condition or a second half
-  "incorrect" contradicts the reference, or does not answer the question
+correctness — compare the answer with the reference answer. Check the reason
+before the conclusion.
+  "correct"   the conclusion and the reason both match the reference, and nothing
+              the reference treats as essential is missing
+  "partial"   the conclusion matches, but the reason is wrong or missing, or a
+              condition or a second half of the reference is missing, or the answer
+              is uncertain ("probably", "likely") where the reference is definite
+  "incorrect" the conclusion contradicts the reference, the answer allows (even
+              conditionally) something the reference forbids, or it does not answer
+
+  Example: reference "No, rule A forbids it." Answer "No, because of rule B."
+  -> partial: right conclusion, wrong reason.
+  Example: reference "No, rule A forbids it." Answer "Yes, if condition C holds."
+  -> incorrect: it allows something the reference forbids.
 
 groundedness — is every claim in the answer supported by the context above?
   "grounded"   every claim traces to the context
