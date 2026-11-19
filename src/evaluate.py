@@ -41,6 +41,7 @@ class EvalConfig:
     judge_endpoint: str = "databricks-gpt-oss-120b"
     temperature: float = 0.0
     max_tokens: int = 2000   # gpt-oss is a reasoning model, reasoning tokens should count here
+    n_votes: int = 3         # the judge is not stable at temperature 0, each answer is graded n times
 
     @property
     def runs_table(self):
@@ -204,6 +205,38 @@ def judge_context(row):
     if HARD_RULES in system_prompt:
         context = "Hard rules (in the system prompt):\n" + HARD_RULES + CONTEXT_SEPARATOR + context
     return context
+
+
+# Labels per field, best first. Combining votes depends on this order.
+SCALES = {"correctness": CORRECTNESS, "groundedness": GROUNDEDNESS, "refusal": REFUSAL}
+
+
+def _median_label(labels, scale):
+    """Middle label on the scale. With an even count the stricter of the two
+    middle ones, so a tie never rounds a grade up."""
+    ranked = sorted(labels, key=scale.index)
+    return ranked[len(ranked) // 2]
+
+
+def _combine(votes, in_scope):
+    """Combine several judgments of the same answer into one.
+
+    Each label is the median vote. invented_rule is true if at least half the
+    votes say so. judge_agreement is the share of votes that gave the final
+    label on the main field (correctness in scope, refusal out of scope).
+    """
+    fields = ["correctness", "groundedness"] if in_scope else ["refusal"]
+    out = dict.fromkeys(JUDGMENT_FIELDS)
+    for field in fields:
+        out[field] = _median_label([v[field] for v in votes], SCALES[field])
+    if not in_scope:
+        out["invented_rule"] = 2 * sum(v["invented_rule"] for v in votes) >= len(votes)
+
+    main = fields[0]
+    agreeing = [v for v in votes if v[main] == out[main]]
+    out["judge_reason"] = agreeing[0]["judge_reason"]
+    out["judge_agreement"] = len(agreeing) / len(votes)
+    return out
 
 
 def judge_row(client, cfg, row):
