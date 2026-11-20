@@ -7,7 +7,7 @@ Anything that is not decided here is seen as exploratory action made.
 ## What is run
 - Final split: 30 questions, 23 in scope and 7 out of  the scope.
 - Variants: A, B, B_rules, B_refusal, B_citations. One run each, temperature 0.
-- Code, prompts, judge (v2, median of 3 votes) and test set are maybe getting froze from the date below 
+- Code, prompts, judge (v2, median of 3 votes) and test set are frozen from 
   2026-11-20.
 
 ## Primary comparison
