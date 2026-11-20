@@ -15,6 +15,7 @@ and check the two agree. See manual_template and agreement below.
 """
 
 import json
+import random
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -41,6 +42,7 @@ class EvalConfig:
     judge_endpoint: str = "databricks-gpt-oss-120b"
     temperature: float = 0.0
     max_tokens: int = 2000   # gpt-oss is a reasoning model, reasoning tokens should count here
+    n_votes: int = 3         # the judge is not stable at temperature 0, each answer is graded n times
 
     @property
     def runs_table(self):
@@ -55,6 +57,11 @@ class EvalConfig:
 
 
 # Judge prompts
+
+# Bump when a judge prompt changes, saved with every judgment so grades from
+# different prompts are never mixed. Rows saved before this field existed are v1.
+# v2: correctness checks the reason, not only the conclusion.
+JUDGE_VERSION = "v2"
 
 JUDGE_SYSTEM = (
     "You grade answers given by an assistant that answers employee questions "
@@ -77,10 +84,20 @@ The assistant's answer:
 
 Grade two things, independently of each other.
 
-correctness — does the answer match the reference answer?
-  "correct"   every claim matches, nothing important is missing
-  "partial"   partly right, or right but missing a condition or a second half
-  "incorrect" contradicts the reference, or does not answer the question
+correctness — compare the answer with the reference answer. Check the reason
+before the conclusion.
+  "correct"   the conclusion and the reason both match the reference, and nothing
+              the reference treats as essential is missing
+  "partial"   the conclusion matches, but the reason is wrong or missing, or a
+              condition or a second half of the reference is missing, or the answer
+              is uncertain ("probably", "likely") where the reference is definite
+  "incorrect" the conclusion contradicts the reference, the answer allows (even
+              conditionally) something the reference forbids, or it does not answer
+
+  Example: reference "No, rule A forbids it." Answer "No, because of rule B."
+  -> partial: right conclusion, wrong reason.
+  Example: reference "No, rule A forbids it." Answer "Yes, if condition C holds."
+  -> incorrect: it allows something the reference forbids.
 
 groundedness — is every claim in the answer supported by the context above?
   "grounded"   every claim traces to the context
@@ -191,8 +208,45 @@ def judge_context(row):
     return context
 
 
+# Labels per field, best first. Combining votes depends on this order.
+SCALES = {"correctness": CORRECTNESS, "groundedness": GROUNDEDNESS, "refusal": REFUSAL}
+
+
+def _median_label(labels, scale):
+    """Middle label on the scale. With an even count the stricter of the two
+    middle ones, so a tie never rounds a grade up."""
+    ranked = sorted(labels, key=scale.index)
+    return ranked[len(ranked) // 2]
+
+
+def _combine(votes, in_scope):
+    """Combine several judgments of the same answer into one.
+
+    Each label is the median vote. invented_rule is true if at least half the
+    votes say so. judge_agreement is the share of votes that gave the final
+    label on the main field (correctness in scope, refusal out of scope).
+    """
+    fields = ["correctness", "groundedness"] if in_scope else ["refusal"]
+    out = dict.fromkeys(JUDGMENT_FIELDS)
+    for field in fields:
+        out[field] = _median_label([v[field] for v in votes], SCALES[field])
+    if not in_scope:
+        out["invented_rule"] = 2 * sum(v["invented_rule"] for v in votes) >= len(votes)
+
+    main = fields[0]
+    agreeing = [v for v in votes if v[main] == out[main]]
+    out["judge_reason"] = agreeing[0]["judge_reason"]
+    out["judge_agreement"] = len(agreeing) / len(votes)
+    return out
+
+
 def judge_row(client, cfg, row):
-    """Grade one stored run row. Returns the judgment fields and the raw reply."""
+    """Grade one stored run row cfg.n_votes times and combine the votes.
+
+    A vote that fails or gives an unusable label is skipped, the rest still
+    count. Returns the combined judgment, the raw replies and the number of
+    votes used. Raises only if every vote failed.
+    """
     template = JUDGE_IN_SCOPE if row["in_scope"] else JUDGE_OUT_OF_SCOPE
     prompt = template.format(
         question=row["question"],
@@ -200,8 +254,21 @@ def judge_row(client, cfg, row):
         context_text=judge_context(row),
         answer=row["answer"],
     )
-    raw = _chat(client, cfg, prompt)
-    return _validate(_parse(raw), row["in_scope"]), raw
+
+    votes, raws, errors = [], [], []
+    for _ in range(cfg.n_votes):
+        raw = None
+        try:
+            raw = _chat(client, cfg, prompt)
+            votes.append(_validate(_parse(raw), row["in_scope"]))
+        except Exception as exc:  # noqa: BLE001 - kept, raised below if no vote worked
+            errors.append(f"{type(exc).__name__}: {exc}")
+        if raw is not None:
+            raws.append(raw)
+
+    if not votes:
+        raise RuntimeError(f"All {cfg.n_votes} votes failed: " + " | ".join(errors))
+    return _combine(votes, row["in_scope"]), raws, len(votes)
 
 
 # Running
@@ -231,15 +298,19 @@ def evaluate_rows(cfg, rows, client=None, on_progress=None):
             **dict.fromkeys(JUDGMENT_FIELDS),
             **retrieval_metrics(row),
             "judge_endpoint": cfg.judge_endpoint,
+            "judge_version": JUDGE_VERSION,
+            "judge_votes": None,
+            "judge_agreement": None,
             "judge_raw": None,
             "judge_error": None,
             "created_at": datetime.now(timezone.utc),
         }
 
         try:
-            judgment, raw = judge_row(client, cfg, row)
+            judgment, raws, n_votes = judge_row(client, cfg, row)
             evaluation.update(judgment)
-            evaluation["judge_raw"] = raw[:2000]
+            evaluation["judge_votes"] = n_votes
+            evaluation["judge_raw"] = "\n---\n".join(raws)[:6000]
         except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
             evaluation["judge_error"] = f"{type(exc).__name__}: {exc}"
 
@@ -324,6 +395,37 @@ def manual_template(rows):
     } for r in rows]
 
 
+def blind_template(rows, seed=0):
+    """Manual grading for several runs at once, without showing the variant.
+
+    Rows from all runs are mixed in random order and run_id is replaced by an
+    item_id. Returns the template and a key from item_id to run_id. Keep the
+    key away from the grader until grading is done.
+
+    The blinding is partial: B's citations and the hard rules in its context
+    can still give the variant away.
+    """
+    shuffled = list(rows)
+    random.Random(seed).shuffle(shuffled)
+
+    template, key = [], {}
+    for number, row in enumerate(shuffled, start=1):
+        item_id = f"item_{number:03d}"
+        key[item_id] = row["run_id"]
+        item = manual_template([row])[0]
+        del item["run_id"]
+        template.append({"item_id": item_id, **item})
+    return template, key
+
+
+def unblind(manual, key):
+    """Graded blind rows back per run, ready for agreement(): {run_id: rows}."""
+    per_run = {}
+    for row in manual:
+        per_run.setdefault(key[row["item_id"]], []).append(row)
+    return per_run
+
+
 def cohens_kappa(labels_a, labels_b):
     """Agreement corrected for chance. 1.0 perfect, 0.0 chance level.
 
@@ -382,7 +484,9 @@ RESULTS_SCHEMA = """
     correctness string, groundedness string, refusal string,
     invented_rule boolean, judge_reason string,
     recall_at_k double, reciprocal_rank double, n_gold_retrieved int,
-    judge_endpoint string, judge_raw string, judge_error string,
+    judge_endpoint string, judge_version string,
+    judge_votes int, judge_agreement double,
+    judge_raw string, judge_error string,
     created_at timestamp
 """
 
