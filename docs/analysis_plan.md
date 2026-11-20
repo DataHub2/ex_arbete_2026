@@ -1,7 +1,7 @@
 # Analysis plan
 
 This was written before i did final run. The final split has not yet  been run or tuned on.
-Anything we decisded here can be seen as exploritory.
+Anything that is not decided here is seen as exploratory action made.
 
 
 ## What is run
@@ -11,9 +11,10 @@ Anything we decisded here can be seen as exploritory.
   2026-11-20.
 
 ## Primary comparison
-A against B on the 23 in scope questions, and we will try to see it from a correctnous perspectiv.
+A against B on the 23 in scope questions, and will measured by corectnesss.
 
-And in this case correctnous needs to be handled by hand, and the manual grade is the primary measure.
+And in this case correctnous is scored by hand (project members) and we will have our scoring as a primary measure.
+
 The in this case the judge is a second measure. Its agreement with the manual grading
 (Cohen's kappa) is reported on final.
 
@@ -25,7 +26,7 @@ citations maybe still give the variant away. This is reported as a limitation in
 - Groundedness (in scope).
 - Out of scope (7 questions): refusal, and to see if a rule was invented.
 - Over refusal: in scope answers that gives us the refusal sentence.
-- citations (B and B_citations): should both be cited [Document > Section] label s
+- citations (B and B_citations): share of  cited [Document > Section] label s
   that match a retriefed excerpt.
 - Retrieval: recall@k and MRR. Should be the same in  all variants, and this is beacuse B only changes the prompt.
 
@@ -48,5 +49,4 @@ so these results carry the judge's caveat.
   affect final.
 
 ## Not allowed after the final run
-Changing of the prompts, the judgeing system, the test set and or this plan. Anything added later will then be added as a
-is labelled as exploratory.
+Changing of the prompts, the judgeing system, the test set this plan. Anything added later will then  be labelled as exploratory.
