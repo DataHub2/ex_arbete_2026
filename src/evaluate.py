@@ -15,6 +15,7 @@ and check the two agree. See manual_template and agreement below.
 """
 
 import json
+import random
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -392,6 +393,37 @@ def manual_template(rows):
         "invented_rule": "",    # true | false                      (out-of-scope)
         "notes": "",
     } for r in rows]
+
+
+def blind_template(rows, seed=0):
+    """Manual grading for several runs at once, without showing the variant.
+
+    Rows from all runs are mixed in random order and run_id is replaced by an
+    item_id. Returns the template and a key from item_id to run_id. Keep the
+    key away from the grader until grading is done.
+
+    The blinding is partial: B's citations and the hard rules in its context
+    can still give the variant away.
+    """
+    shuffled = list(rows)
+    random.Random(seed).shuffle(shuffled)
+
+    template, key = [], {}
+    for number, row in enumerate(shuffled, start=1):
+        item_id = f"item_{number:03d}"
+        key[item_id] = row["run_id"]
+        item = manual_template([row])[0]
+        del item["run_id"]
+        template.append({"item_id": item_id, **item})
+    return template, key
+
+
+def unblind(manual, key):
+    """Graded blind rows back per run, ready for agreement(): {run_id: rows}."""
+    per_run = {}
+    for row in manual:
+        per_run.setdefault(key[row["item_id"]], []).append(row)
+    return per_run
 
 
 def cohens_kappa(labels_a, labels_b):
