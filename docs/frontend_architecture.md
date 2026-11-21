@@ -13,11 +13,4 @@ The frontend is going to be a smaller streamlit app that is going to let our use
 `app.yaml`  is in the root of this repo so the app can import  `src/rag.py`. The
 app uses the same pipeline as the experiment and we do not change `src/`.
 
-## Flow
 
-```mermaid
-flowchart Lr
-    A[User question] --> B[app.py] --> C[backend.py] --> D[src/rag.py]
-    D -> E[Vector Search + Llama]
-     E -> F[components.py] --> G[Answer on the page]
-```
