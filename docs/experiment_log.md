@@ -317,3 +317,7 @@ Vote agreement: mean 0.97, lowest 0.67 on `dev_02`.
    about who registers the sick leave. The judge wavering there is reasonable.
 6. **n = 7.** A single label moves kappa a lot at this size. 0.70 is a good sign,
    not a fixed value. The real estimate comes from the final split at n = 23.
+
+**Decision, written into `analysis_plan.md` before the final run:** the ablation
+(B_rules, B_refusal, B_citations) is graded by the judge alone for correctness.
+Groundedness carries the judge's caveat wherever it is reported.
