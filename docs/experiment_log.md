@@ -290,3 +290,30 @@ graded run `20261031T191325Z-09e6e4` again and compared with the manual grades f
 the final run so the plan could still change.
 
 **Results:**
+
+| dimension | n | exact match | kappa v1 | kappa v2 |
+|---|---|---|---|---|
+| correctness | 7 | 0.86 | 0.00 | 0.70 |
+| groundedness | 7 | 0.71 | 0.22 | 0.53 |
+| refusal | 3 | 1.00 | 1.00 | 1.00 |
+
+Vote agreement: mean 0.97, lowest 0.67 on `dev_02`.
+
+**Observations:**
+
+1. **v2 has spread, v1 did not.** v2 gives 5 correct and 2 partial on the seven
+   in-scope questions. v1 gave `correct` to all seven, which is why its kappa was
+   0.00 however good the exact match looked.
+2. **Correctness is usable.** kappa 0.70. v2 corrected three of v1's six
+   disagreements: `dev_02` on both dimensions and `dev_03` on correctness.
+3. **Groundedness is weaker.** kappa 0.53, below the 0.6 mark. It is reported with
+   an explicit caveat, correctness is not.
+4. **The remaining disagreements are one-directional and concentrated.** `dev_07`
+   on both dimensions and `dev_03` on groundedness, all with the judge milder than
+   the human. This inflates A and B equally and compresses the difference between them, 
+   so the judge will sooner miss an effect than invent one.
+5. **Median vote does its job.** Votes agreed completely on nine of ten
+   questions. The one split was `dev_02`, where the gold answer itself is ambiguous
+   about who registers the sick leave. The judge wavering there is reasonable.
+6. **n = 7.** A single label moves kappa a lot at this size. 0.70 is a good sign,
+   not a fixed value. The real estimate comes from the final split at n = 23.
