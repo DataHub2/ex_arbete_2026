@@ -279,3 +279,14 @@ from 2026-10-28 gave identical chunks, ranks and scores, so A's dev run stays co
 7. **Still no headroom for refusal on dev.** A and B both declined all three
    out-of-scope questions. n = 7 in-scope, so one question moves correct by 0.14,
    these are directions, not results.
+
+
+
+## 2026-11-22 - Judge v2 against the manual grades / N
+
+**Setup:** Notebook `06_judge_check`. Judge v2, three votes with the median taken,
+graded run `20261031T191325Z-09e6e4` again and compared with the manual grades from
+2026-11-15. Same answers and contexts, nothing re-run on the answer model. Done before 
+the final run so the plan could still change.
+
+**Results:**
