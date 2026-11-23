@@ -2,7 +2,7 @@
  
 Written before the final run. The final split has not been run or tuned on.
 Anything not decided here counts as exploratory.
- 
+
 ## What is run
  
 - Final split: 30 questions, 23 in scope and 7 out of scope.
@@ -20,7 +20,6 @@ measure. The judge is a second measure, and its agreement with the manual gradin
 A and B are graded in one file, mixed in random order with the variant hidden
 (`blind_template` in `src/evaluate.py`). The blinding is partial: B's citations may
 still give the variant away. This is reported as a limitation.
- 
 ## Grading protocol
  
 - Two graders grade every answer independently, without seeing each other's grades
@@ -47,13 +46,15 @@ more over-refusal and without more invented rules.
 With n = 23 the result is a direction, not a proof. Results are reported per question
 and per question type. A paired exact test (McNemar) on correct / not correct is
 reported as an indication only.
- 
 ## Ablation
  
 B_rules, B_refusal and B_citations are compared with A in the same way, to show which
 part of B makes the difference. They are graded by the judge only, so these results
-carry the judge's caveat.
- 
+carry the judge's caveat. 
+
+The judge was checked against the manual dev grades on 2026-11-22 
+(kappa 0.70 on correctness, 0.53 on groundedness). Correctness from the judge is reported 
+without a caveat, groundedness with one.
 ## Conventions decided on dev
  
 - Gold chunks are the minimal sufficient set. Recall can undercount when another set
