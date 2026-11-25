@@ -1,68 +1,65 @@
 # Analysis plan
- 
-Written before the final run. The final split has not been run or tuned on.
-Anything not decided here counts as exploratory.
 
-## What is run
- 
-- Final split: 30 questions, 23 in scope and 7 out of scope.
-- Variants: A, B, B_rules, B_refusal, B_citations. One run each, temperature 0.
-- Code, prompts, judge (v2, median of 3 votes) and test set are frozen as of
-  2026-11-20.
-## Primary comparison
- 
-A against B on the 23 in-scope questions, measured by correctness.
- 
-Correctness is graded by hand by project members, and that grading is the primary
-measure. The judge is a second measure, and its agreement with the manual grading
-(Cohen's kappa) is reported on final.
- 
-A and B are graded in one file, mixed in random order with the variant hidden
-(`blind_template` in `src/evaluate.py`). The blinding is partial: B's citations may
-still give the variant away. This is reported as a limitation.
-## Grading protocol
- 
-- Two graders grade every answer independently, without seeing each other's grades
-  and before seeing the judge's output.
-- Disagreements are resolved by the third member, who sees both grades and decides.
-- The share of answers the two graders disagreed on is reported per dimension,
-  before adjudication.
-- The key (`key_DO_NOT_OPEN.json`) stays closed until all grading and adjudication
-  are finished.
-## Secondary measures
- 
-- Groundedness, in scope.
-- Out of scope, 7 questions: refusal, and whether a rule was invented.
-- Over-refusal: in-scope answers that give the refusal sentence.
-- Citations, B and B_citations: the share of cited [Document > Section] labels that
-  match a retrieved excerpt.
-- Retrieval: recall@k and MRR. Should be identical across all variants, since B only
-  changes the prompt.
-## How "B is better" is decided
- 
-B is better if it has more correct answers than A on the in-scope questions, without
-more over-refusal and without more invented rules.
- 
-With n = 23 the result is a direction, not a proof. Results are reported per question
-and per question type. A paired exact test (McNemar) on correct / not correct is
-reported as an indication only.
+We wrote this before the final run. We have not looked at the final questions.
+Things that are not in this plan are extra (exploratory).
+
+## What we run
+
+- 30 final questions. 23 are in scope, 7 are out of scope.
+- 5 variants: A, B, B_rules, B_refusal, B_citations. We run each one one time, temperature 0.
+- From 2026-11-20 we do not change the code, the prompts, the judge (v2, 3 votes)
+  or the questions.
+
+## The main test
+
+We compare  the A and B on the 23 in scope questions. We check if the answers are correct.
+
+We grade this by hand. Our hand grades are the main result.
+The judge is the second result. We show how much it agrees with us (kappa).
+
+A and B are mixed in one file, so we can not see which is which (`blind_template`).
+But B shows sources, so we may still guess. We write this as a limitation.
+
+## How we grade
+
+- Two people grade all answers alone. They do not look at each other or at the judge.
+- If they do not agree, a third person decides.
+- We show how often the two did not agree, before the third person decides.
+- Nobody opens `key_DO_NOT_OPEN.json` before all grading is done.
+
+## Other things we look at
+
+- Groundedness for in scope questions.
+- The 7 out of scope questions: does it say "I don't know"? Does it make up a rule?
+- Does it say "I don't know" when it should answer?
+- B and B_citations: how many of the sources it shows match the text it got?
+- Search: recall@k and MRR. These should be the same for all variants.
+
+## When is B better?
+
+B is better if it gets more correct answers than A, but does not say "I don't know"
+more often and does not make up more rules.
+
+23 questions is not many. So the result shows a direction, not a proof.
+We show the result for each question and each question type.
+We also do a McNemar test, but only as a hint.
+
 ## Ablation
- 
-B_rules, B_refusal and B_citations are compared with A in the same way, to show which
-part of B makes the difference. They are graded by the judge only, so these results
-carry the judge's caveat. 
 
-The judge was checked against the manual dev grades on 2026-11-22 
-(kappa 0.70 on correctness, 0.53 on groundedness). Correctness from the judge is reported 
-without a caveat, groundedness with one.
-## Conventions decided on dev
- 
-- Gold chunks are the minimal sufficient set. Recall can undercount when another set
-  of chunks is also enough, as seen on dev_03 and dev_07. Such cases are reported as
-  a known limitation and the gold sets are not changed.
-- dev_02's gold answer is left as it is. It is on the dev split and does not affect
-  final.
-## Not allowed after the final run
- 
-Changing the prompts, the judge, the test set or this plan. Anything added later is
-labelled exploratory.
+We compare B_rules, B_refusal and B_citations with A in the same way.
+Then we see which part of B helps. Only the judge grades these.
+
+We checked the judge on dev on 2026-11-22. Kappa was 0.70 for correctness and 0.53
+for groundedness. So we trust correctness, but we add a warning for groundedness.
+
+## Rules from dev
+
+- Gold chunks are the smallest set of chunks that is enough. Sometimes another set also
+  works, and then recall looks too low (dev_03 and dev_07). We write this as a limitation.
+  We do not change the gold chunks.
+- We do not change the gold answer for dev_02. It is only a dev question.
+
+## After the final run
+
+We do not change the prompts, the judge, the questions or this plan.
+If we add something later, we call it extra (exploratory).

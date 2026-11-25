@@ -1,13 +1,14 @@
-"""Grades stored runs with an LLM judge. Reads experiment_runs, writes evaluation_results.
+"""An AI judge grades the saved answers.
+Reads from experiment_runs and saves to evaluation_results.
 
-The answer model is never called again, the judge sees the answer and the exact
-context that produced it, both stored at run time. So, the judge prompt can be
-changed and everything re-graded for free.
+The judge reads the saved answer and the saved text. We do not ask the
+answer model again, so we can grade again for free.
 
-The judge is gpt-oss-120b, which is different from the answer model -> less
-self-preference bias. A judge is not ground truth, grade the dev split by hand too 
-and check the two agree. See manual_template and agreement below.
+The judge is gpt-oss-120b. It is not the same model as the one that answers,
+so it does not like its own answers more. The judge can be wrong, so we also
+grade by hand and compare. See manual_template and agreement.
 
+Example:
     cfg = EvalConfig()
     rows = evaluate_run(spark, cfg, run_id="20261031T...")
     save_evaluations(spark, cfg, rows)
@@ -23,8 +24,8 @@ from datetime import datetime, timezone
 from src.prompts import CONTEXT_SEPARATOR, HARD_RULES, INFORMATION_CLASSES
 from src.rag import retrieval_metrics
 
-# Judge must return one of these. 
-# Manual grading uses the same words, so the two can be compared directly.
+# The judge must use one of these words.
+# We use the same words when we grade by hand.
 CORRECTNESS = ["correct", "partial", "incorrect"]
 GROUNDEDNESS = ["grounded", "partial", "ungrounded"]
 REFUSAL = ["declined", "hedged", "answered"]
@@ -37,12 +38,11 @@ class EvalConfig:
     catalog: str = "workspace"
     schema: str = "policy_rag"
 
-    # Serving endpoint, not the system.ai.* name in docs/model_choices.md.
-    # Those are Unity Catalog model names and don't resolve as endpoints.
+    # The judge model. Use this name, the system.ai.* name does not work here.
     judge_endpoint: str = "databricks-gpt-oss-120b"
     temperature: float = 0.0
-    max_tokens: int = 2000   # gpt-oss is a reasoning model, reasoning tokens should count here
-    n_votes: int = 3         # the judge is not stable at temperature 0, each answer is graded n times
+    max_tokens: int = 2000   # gpt-oss thinks first, and thinking uses tokens too
+    n_votes: int = 3         # the judge can change its mind, so it grades every answer 3 times
 
     @property
     def runs_table(self):
@@ -58,9 +58,9 @@ class EvalConfig:
 
 # Judge prompts
 
-# Bump when a judge prompt changes, saved with every judgment so grades from
-# different prompts are never mixed. Rows saved before this field existed are v1.
-# v2: correctness checks the reason, not only the conclusion.
+# Change this when the judge prompt changes. It is saved with every grade,
+# so we never mix old and new grades. Old rows without it are v1.
+# v2: the judge also checks the reason, not only the answer.
 JUDGE_VERSION = "v2"
 
 JUDGE_SYSTEM = (
@@ -146,8 +146,8 @@ def _judge_client():
 
 
 def _chat(client, cfg, user_prompt):
-    """One judge call. Kept out of rag.py on purpose, the judge has its own model
-    and parameters, and rag.py shouldn't change once runs are logged against it."""
+    """Ask the judge one time. This is not in rag.py, because the judge
+    has its own model and settings."""
     from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 
     response = client.serving_endpoints.query(
@@ -163,7 +163,7 @@ def _chat(client, cfg, user_prompt):
 
 
 def _parse(raw):
-    """Pull the JSON object out of the reply, code fences and prose included."""
+    """Get the JSON from the judge's reply, even if there is more text."""
     text = raw.strip()
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
     if fenced:
@@ -176,29 +176,29 @@ def _parse(raw):
 
 
 def _validate(parsed, in_scope):
-    """Map the reply onto the result fields, rejecting labels we didn't ask for."""
-    out = dict.fromkeys(JUDGMENT_FIELDS)
-    out["judge_reason"] = (parsed.get("reason") or "")[:500]
+    """Put the reply in our fields. Stop if the judge used a wrong word."""
+    judgment = dict.fromkeys(JUDGMENT_FIELDS)
+    judgment["judge_reason"] = (parsed.get("reason") or "")[:500]
 
     def label(key, allowed):
         value = parsed.get(key)
         if value not in allowed:
-            raise ValueError(f"{key}={value!r} is not one of {allowed}")
+            raise ValueError(f"{key}={value!r} is wrong, use one of {allowed}")
         return value
 
     if in_scope:
-        out["correctness"] = label("correctness", CORRECTNESS)
-        out["groundedness"] = label("groundedness", GROUNDEDNESS)
+        judgment["correctness"] = label("correctness", CORRECTNESS)
+        judgment["groundedness"] = label("groundedness", GROUNDEDNESS)
     else:
-        out["refusal"] = label("refusal", REFUSAL)
-        out["invented_rule"] = bool(parsed.get("invented_rule"))
-    return out
+        judgment["refusal"] = label("refusal", REFUSAL)
+        judgment["invented_rule"] = bool(parsed.get("invented_rule"))
+    return judgment
 
 
 def judge_context(row):
-    """What the assistant had to rely on: the retrieved excerpts, plus the hard
-    rules when they were in its system prompt (B and B_rules). Without them a
-    correct rule-based answer would be graded as ungrounded."""
+    """All text the chatbot could read: the chunks, plus the hard rules
+    if it had them (B and B_rules). Without the rules, a right answer
+    from the rules would get "ungrounded"."""
     context = row["context_text"] or ""
     system_prompt = row.get("system_prompt") or ""
     if INFORMATION_CLASSES in system_prompt:
@@ -208,44 +208,43 @@ def judge_context(row):
     return context
 
 
-# Labels per field, best first. Combining votes depends on this order.
+# The words for each field, best first. The order is used when we count votes.
 SCALES = {"correctness": CORRECTNESS, "groundedness": GROUNDEDNESS, "refusal": REFUSAL}
 
 
 def _median_label(labels, scale):
-    """Middle label on the scale. With an even count the stricter of the two
-    middle ones, so a tie never rounds a grade up."""
+    """Pick the middle grade. If it is a tie, pick the worse one."""
     ranked = sorted(labels, key=scale.index)
     return ranked[len(ranked) // 2]
 
 
 def _combine(votes, in_scope):
-    """Combine several judgments of the same answer into one.
+    """Make one grade from the judge's votes.
 
-    Each label is the median vote. invented_rule is true if at least half the
-    votes say so. judge_agreement is the share of votes that gave the final
-    label on the main field (correctness in scope, refusal out of scope).
+    Each field gets the middle vote. invented_rule is true if half or more
+    of the votes say true. judge_agreement is how many votes gave the
+    final grade (correctness in scope, refusal out of scope).
     """
     fields = ["correctness", "groundedness"] if in_scope else ["refusal"]
-    out = dict.fromkeys(JUDGMENT_FIELDS)
+    judgment = dict.fromkeys(JUDGMENT_FIELDS)
     for field in fields:
-        out[field] = _median_label([v[field] for v in votes], SCALES[field])
+        judgment[field] = _median_label([vote[field] for vote in votes], SCALES[field])
     if not in_scope:
-        out["invented_rule"] = 2 * sum(v["invented_rule"] for v in votes) >= len(votes)
+        judgment["invented_rule"] = 2 * sum(vote["invented_rule"] for vote in votes) >= len(votes)
 
-    main = fields[0]
-    agreeing = [v for v in votes if v[main] == out[main]]
-    out["judge_reason"] = agreeing[0]["judge_reason"]
-    out["judge_agreement"] = len(agreeing) / len(votes)
-    return out
+    main_field = fields[0]
+    same_votes = [vote for vote in votes if vote[main_field] == judgment[main_field]]
+    judgment["judge_reason"] = same_votes[0]["judge_reason"]
+    judgment["judge_agreement"] = len(same_votes) / len(votes)
+    return judgment
 
 
 def judge_row(client, cfg, row):
-    """Grade one stored run row cfg.n_votes times and combine the votes.
+    """Grade one answer 3 times (cfg.n_votes) and make one grade.
 
-    A vote that fails or gives an unusable label is skipped, the rest still
-    count. Returns the combined judgment, the raw replies and the number of
-    votes used. Raises only if every vote failed.
+    If a vote fails, we skip it and use the others.
+    Gives back the grade, the judge's replies and how many votes worked.
+    Stops only if all votes failed.
     """
     template = JUDGE_IN_SCOPE if row["in_scope"] else JUDGE_OUT_OF_SCOPE
     prompt = template.format(
@@ -261,7 +260,7 @@ def judge_row(client, cfg, row):
         try:
             raw = _chat(client, cfg, prompt)
             votes.append(_validate(_parse(raw), row["in_scope"]))
-        except Exception as exc:  # noqa: BLE001 - kept, raised below if no vote worked
+        except Exception as exc:  # noqa: BLE001 - saved, and raised below if no vote worked
             errors.append(f"{type(exc).__name__}: {exc}")
         if raw is not None:
             raws.append(raw)
@@ -275,7 +274,7 @@ def judge_row(client, cfg, row):
 
 
 def load_run(spark, cfg, run_id):
-    """Stored rows for one run, errors excluded, nothing to grade in those."""
+    """Get the rows for one run. Rows with an error are skipped."""
     rows = (spark.table(cfg.runs_table)
                  .filter(f"run_id = '{run_id}' AND error IS NULL")
                  .collect())
@@ -283,12 +282,11 @@ def load_run(spark, cfg, run_id):
 
 
 def evaluate_rows(cfg, rows, client=None, on_progress=None):
-    """Grade stored rows. A failed call or an unusable label goes in judge_error,
-    the run continues."""
+    """Grade the rows. If one fails, save the error in judge_error and go on."""
     client = client or _judge_client()
     evaluations = []
 
-    for position, row in enumerate(rows, start=1):
+    for number, row in enumerate(rows, start=1):
         evaluation = {
             "run_id": row["run_id"],
             "question_id": row["question_id"],
@@ -311,12 +309,12 @@ def evaluate_rows(cfg, rows, client=None, on_progress=None):
             evaluation.update(judgment)
             evaluation["judge_votes"] = n_votes
             evaluation["judge_raw"] = "\n---\n".join(raws)[:6000]
-        except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
+        except Exception as exc:  # noqa: BLE001 - the error is saved
             evaluation["judge_error"] = f"{type(exc).__name__}: {exc}"
 
         evaluations.append(evaluation)
         if on_progress:
-            on_progress(position, len(rows), evaluation)
+            on_progress(number, len(rows), evaluation)
 
     return evaluations
 
@@ -325,16 +323,17 @@ def evaluate_run(spark, cfg, run_id, client=None, on_progress=None):
     return evaluate_rows(cfg, load_run(spark, cfg, run_id), client, on_progress)
 
 
-# Summary of the evaluation
+# Summary
 
 
 def _share(values, wanted):
-    values = [v for v in values if v is not None]
-    return sum(v == wanted for v in values) / len(values) if values else None
+    """How many of the values are `wanted`, from 0 to 1."""
+    values = [value for value in values if value is not None]
+    return sum(value == wanted for value in values) / len(values) if values else None
 
 
 def summarize(evaluations):
-    """Per question type, plus an in-scope and an out-of-scope total."""
+    """Results for each question type, plus in scope and out of scope in total."""
     graded = [e for e in evaluations if not e["judge_error"]]
     groups = {}
     for evaluation in graded:
@@ -369,14 +368,14 @@ def format_summary(summary):
     return "\n".join(lines)
 
 
-# Validating the judge against manual grading
+# Compare the judge with our grades
 
 
 def manual_template(rows):
-    """Rows to grade by hand, judgment columns left blank.
+    """Make rows to grade by hand. The grade columns are empty.
 
-    Write to CSV, fill the blanks with the same labels as the judge, read back,
-    pass both to agreement. Grade before looking at the judge's output.
+    Save as CSV, fill in the empty columns, read it back and use agreement.
+    Grade before you look at the judge.
     """
     return [{
         "run_id": r["run_id"],
@@ -396,20 +395,20 @@ def manual_template(rows):
 
 
 def blind_template(rows, seed=0):
-    """Manual grading for several runs at once, without showing the variant.
+    """Grade A and B by hand, without knowing which is which.
 
-    Rows from all runs are mixed in random order and run_id is replaced by an
-    item_id. Returns the template and a key from item_id to run_id. Keep the
-    key away from the grader until grading is done.
+    The rows are mixed and run_id is changed to item_id.
+    Gives back the rows and a key (item_id -> run_id).
+    Do not look at the key before all grading is done.
 
-    The blinding is partial: B's citations and the hard rules in its context
-    can still give the variant away.
+    It is not fully blind: B shows sources and hard rules,
+    so you may still guess that it is B.
     """
-    shuffled = list(rows)
-    random.Random(seed).shuffle(shuffled)
+    mixed_rows = list(rows)
+    random.Random(seed).shuffle(mixed_rows)
 
     template, key = [], {}
-    for number, row in enumerate(shuffled, start=1):
+    for number, row in enumerate(mixed_rows, start=1):
         item_id = f"item_{number:03d}"
         key[item_id] = row["run_id"]
         item = manual_template([row])[0]
@@ -419,7 +418,7 @@ def blind_template(rows, seed=0):
 
 
 def unblind(manual, key):
-    """Graded blind rows back per run, ready for agreement(): {run_id: rows}."""
+    """Put the graded rows back with their run: {run_id: rows}."""
     per_run = {}
     for row in manual:
         per_run.setdefault(key[row["item_id"]], []).append(row)
@@ -427,10 +426,10 @@ def unblind(manual, key):
 
 
 def cohens_kappa(labels_a, labels_b):
-    """Agreement corrected for chance. 1.0 perfect, 0.0 chance level.
+    """How much two graders agree, when we remove agreement by luck.
+    1.0 = always agree. 0.0 = same as luck.
 
-    Above ~0.6 usually reads as substantial. Below that the judge's numbers need
-    a caveat in the report.
+    Over 0.6 is good. Under 0.6, write a warning in the report.
     """
     pairs = [(a, b) for a, b in zip(labels_a, labels_b) if a and b]
     if not pairs:
@@ -439,12 +438,12 @@ def cohens_kappa(labels_a, labels_b):
     n = len(pairs)
 
     observed = sum(x == y for x, y in pairs) / n
-    expected = sum((a.count(l) / n) * (b.count(l) / n) for l in set(a) | set(b))
+    expected = sum((a.count(label) / n) * (b.count(label) / n) for label in set(a) | set(b))
     return 1.0 if expected == 1 else (observed - expected) / (1 - expected)
 
 
 def agreement(evaluations, manual):
-    """Judge against manual grading, per dimension."""
+    """Compare the judge with our grades, for each field."""
     by_id = {m["question_id"]: m for m in manual}
 
     def human(question_id, field):
@@ -492,8 +491,8 @@ RESULTS_SCHEMA = """
 
 
 def save_evaluations(spark, cfg, evaluations, table=None):
-    """Append judgments. Re-grading appends a second set, tell them apart by
-    created_at and keep the old one, a changed judge prompt is a result."""
+    """Add the grades to the table. If we grade again, we get new rows
+    and the old ones stay. Use created_at to see which is which."""
     if not evaluations:
         raise ValueError("Nothing to save.")
 

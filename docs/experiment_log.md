@@ -2,7 +2,7 @@
 
 ## 2026-10-28 – First retrieval test
 
-**Setup:** Vector Search Delta Sync index on `workspace.policy_rag.policy_chunks` (39 chunks), embeddings with `gte-large-en`, top-k = 3. Notebook: `notebooks/02_vector_index`.
+**Setup:** We made a search index on `workspace.policy_rag.policy_chunks` (39 chunks). Embeddings: `gte-large-en`. top-k = 3. Notebook: `notebooks/02_vector_index`.
 
 **Results:**
 
@@ -35,31 +35,31 @@ Q: What is the company's pension plan?   (not covered by any policy)
 
 **Observations:**
 
-1. Single-section questions retrieve the correct chunk at rank 1, also when the wording differs from the document ("kid is sick" → "care of a sick child").
-2. **Multi-section questions are weak.** The Copilot question needs both *Information classes* (a contract is Confidential) and *Approved AI tools* / *Hard rules*. Only *Approved AI tools* was retrieved (rank 2); *Information classes* was missing. → Candidate failure category for RQ3.
-3. **Score threshold alone is not enough for refusal.** The out-of-scope pension question had the lowest top score (0.531), but the margin to valid questions is small (0.566). → Refusal in Variant B must rely on the LLM judging whether the context answers the question, not only on a score threshold.
+1. Easy questions find the right chunk first, even with other words ("kid is sick" → "care of a sick child").
+2. **Questions that need two parts are hard.** The Copilot question needs *Information classes* and *Approved AI tools* / *Hard rules*. The search only found *Approved AI tools*. → This can be a problem type for RQ3.
+3. **The score is not enough to say "I don't know".** The pension question had the lowest score (0.531), but a real question was close (0.566). → In B the model must decide itself.
 
 
 
 ## 2026-10-31 – First end-to-end run of Variant A
 
-**Setup:** Notebook `03_variant_a`. Retrieval top-k = 3, answer model 'databricks-meta-llama-3-3-70b-instruct', temperature 0, simple system prompt (no citations, no refusal instructions, no hard rules).
+**Setup:** Notebook `03_variant_a`. top-k = 3. Model: 'databricks-meta-llama-3-3-70b-instruct'. Temperature 0. A simple prompt with no sources, no "I don't know" and no hard rules.
 
 **Results (summary):**
 
 | Question | Result |
 |---|---|
 | Vacation days at Nordljus | Correct (30, and 25 for fixed-term) |
-| Vacation days in Sweden | Correct, separated statutory 25 from Nordljus 30. Hallucinated "16 public holidays" from the Playground test was gone |
+| Vacation days in Sweden | Correct. Law 25, Nordljus 30. The made up "16 public holidays" was gone |
 | Can I stay home when my kid is sick? | Correct and complete |
-| Customer contract in M365 Copilot | Partly correct, partly ungrounded (see below) |
-| Pension plan (out of scope) | Correctly declined, referred to HR |
+| Customer contract in M365 Copilot | Half right (see below) |
+| Pension plan (out of scope) | Said it did not know, and said to ask HR |
 
 **Observations:**
 
-1. **Decision point (30 Oct): Variant A works.** Variant B is kept as planned.
-2. **Retrieval errors become answer errors.** *Information classes* was not retrieved for the Copilot question. The model filled the gap with general knowledge ("a contract *typically* contains confidential information") and made a false claim about the policy ("the policy does not explicitly state that customer contracts cannot be used"). → Supports measuring retrieval and correctness separately, and motivates always including hard rules in the system prompt in Variant B.
-3. **The baseline already declines obvious out-of-scope questions.** → The test set needs harder trap questions that are close to policy topics (e.g. unlisted AI tools, travel allowance, edge cases of eligibility rules). Otherwise no difference between A and B can be measured for refusal.
+1. **Decision (30 Oct): A works.** We go on with B.
+2. **If the search misses, the answer is wrong.** The search did not find *Information classes*. So the model guessed ("a contract *typically* contains confidential information"). It also said something false ("the policy does not explicitly state that customer contracts cannot be used"). → We measure the search and the answer apart. In B we always give the model the hard rules.
+3. **A already says "I don't know" on easy questions.** → We need harder trick questions, close to the rules (for example AI tools not on the list, travel money). If not, we can not see a difference between A and B.
 
 
 
@@ -214,7 +214,7 @@ Disagreements, judge vs manual:
    grading as the primary measure on dev and use the judge as a secondary signal on final. 
    To be decided before the final run.
 6. **Caveat on independence.** I (Nasser) had seen the judge's reasoning for `dev_02` and `dev_03` 
-   before grading, so three of the ten were not graded blind. The direction of that bias would be 
+   before grading, so three of tthe ten were not graded blind. The direction of that bias would be 
    toward agreement, and the measured agreement is low anyway, so it does not explain the result. 
    A second grader from the group would/could settle it.
 
@@ -222,19 +222,17 @@ Disagreements, judge vs manual:
 
 ## 2026-11-15/16 – Variant B on the dev split, v1 and v2 / Z
 
-**Setup:** Branch `feature/variant-b`. Variant B = Variant A's system prompt plus
-three features in `src/prompts.py`: hard rules in the system prompt, a fixed refusal
-sentence, and citations to labelled excerpts. Same retrieval, model and temperature as A.
-Judge `databricks-gpt-oss-120b`, notebook `05_evaluate`. The judge now also sees what
-was in the system prompt (`judge_context` in `src/evaluate.py`), otherwise rule-based
-answers would be graded as ungrounded.
+**Setup:** Branch `feature/variant-b`. B = A's prompt plus three things:
+the hard rules, a fixed "I don't know" sentence, and sources.
+Same search, model and temperature as A. Judge: `databricks-gpt-oss-120b`, notebook `05_evaluate`.
+The judge now also sees the hard rules (`judge_context`). If not, answers that use
+the rules would get "ungrounded".
 
-**Incident:** the first B run failed on all 10 questions with `NOT_FOUND: AI Search
-endpoint ... not found`. The Vector Search endpoint had been removed, most likely by
-Free Edition after a period without use. Fixed by re-running `02_vector_index`: the
-endpoint was recreated, the old index (still registered in Unity Catalog, pointing at
-the removed endpoint) was deleted and rebuilt from `policy_chunks`. The retrieval test
-from 2026-10-28 gave identical chunks, ranks and scores, so A's dev run stays comparable.
+**Problem:** the first B run failed on all 10 questions with `NOT_FOUND: AI Search
+endpoint ... not found`. The search endpoint was gone. Free Edition probably removed it
+because we did not use it for a while. Fix: we ran `02_vector_index` again, deleted the
+old index and built a new one from `policy_chunks`. The test from 2026-10-28 gave the
+same results, so we can still compare with A.
 
 **Runs:**
 
@@ -255,30 +253,23 @@ from 2026-10-28 gave identical chunks, ranks and scores, so A's dev run stays co
 
 **Observations:**
 
-1. **Retrieval is unchanged by design.** B only changes prompts, recall@k is
-   identical to A on every question. Differences in answers come from the prompt alone.
-2. **Groundedness went from 0.71 to 1.00.** With the refusal and citation
-   instructions B stopped filling gaps with general knowledge.
-3. **Hard rules alone were not enough (v1).** `dev_03` answered that a contract can be
-   pasted into Copilot "if it is Public or Internal", and `dev_07` reached "no" through
-   rule 3, which actually points to "yes" for Nordljus Assistant. Both rules depend on
-   the information classes, which are defined in another section that was not
-   retrieved. v2 adds that section to the system prompt, and both questions were then
-   answered with the right class and the right rule. The rules can't be applied without
-   the definitions they refer to.
-4. **The judge is not stable.** By mistake the v1 run was graded a second time with
-   unchanged answers. `dev_01` went from partial to correct and `dev_03` from partial
-   to incorrect. Same answers, same prompt, temperature 0. The judge's numbers need
-   manual validation before they are reported.
-5. **The judge is lenient on reasoning.** In v1 it graded `dev_07` correct although the
-   rule it cited argues for the opposite conclusion. It checks the conclusion more than
-   the argument.
-6. **`dev_02` may be a gold answer problem.** The policy says the sick leave "is then
-   registered in the HR Portal" without saying by whom. The gold answer assumes the
-   employee. Review before the final run.
-7. **Still no headroom for refusal on dev.** A and B both declined all three
-   out-of-scope questions. n = 7 in-scope, so one question moves correct by 0.14,
-   these are directions, not results.
+1. **The search is the same.** B only changes the prompt, so recall@k is the same as A.
+   All changes in the answers come from the prompt.
+2. **Groundedness went from 0.71 to 1.00.** B stopped guessing.
+3. **The hard rules were not enough (v1).** `dev_03` said a contract can go into Copilot
+   "if it is Public or Internal". `dev_07` said "no" because of rule 3, but rule 3 says
+   "yes" for Nordljus Assistant. The rules need the information classes, and the search
+   did not find them. In v2 we added the classes too. Then both answers were right.
+4. **The judge changes its mind.** By mistake we graded v1 two times. `dev_01` went
+   from partial to correct, and `dev_03` from partial to incorrect. Same answers,
+   temperature 0. We must check the judge by hand.
+5. **The judge does not check the reason well.** In v1 it said `dev_07` was correct,
+   but the reason in the answer was wrong.
+6. **The gold answer for `dev_02` may be wrong.** The policy says sick leave "is then
+   registered in the HR Portal", but not by who. Look at it before the final run.
+7. **We still can not see a difference in "I don't know" on dev.** A and B both said
+   "I don't know" on all three. With only 7 in scope questions, one question changes
+   correct by 0.14. This is a direction, not a result.
 
 
 
@@ -314,7 +305,7 @@ Vote agreement: mean 0.97, lowest 0.67 on `dev_02`.
    so the judge will sooner miss an effect than invent one.
 5. **Median vote does its job.** Votes agreed completely on nine of ten
    questions. The one split was `dev_02`, where the gold answer itself is ambiguous
-   about who registers the sick leave. The judge wavering there is reasonable.
+   about who registers the sick leave to the systam. The judge wavering there is reasonable.
 6. **n = 7.** A single label moves kappa a lot at this size. 0.70 is a good sign,
    not a fixed value. The real estimate comes from the final split at n = 23.
 
