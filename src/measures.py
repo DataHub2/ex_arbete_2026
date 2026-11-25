@@ -16,7 +16,7 @@ def over_refusal(rows):
 
 
 if __name__ == "__main__":
-    # Self-test
+    
     rows = [
         {"in_scope": True, "answer": "Permanent employees get 30 vacation days."},
         {"in_scope": True, "answer": REFUSAL_SENTENCE},
