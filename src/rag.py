@@ -1,8 +1,9 @@
-"""Runs test through a variant and saves every answer to Delta.
+"""Ask all test questions to one variant and save the answers.
 
-Same retrieval, prompt and model call as notebooks/03_variant_a, 
-this adds the persistence of the evaluation and the final runs read back.
+Works like notebooks/03_variant_a, but it also saves the answers
+so we can grade them later.
 
+Example:
     cfg = RagConfig(variant="A")
     questions = load_questions("../data/questions/questions.jsonl", split="dev")
     rows = run_experiment(RagPipeline(cfg), questions, run_label="variant_a_dev")
@@ -18,11 +19,10 @@ from pathlib import Path
 
 from src.prompts import CONTEXT_SEPARATOR, get_prompts
 
-# similarity_search returns these columns in order
+# What we get back from the search
 RETRIEVE_COLUMNS = ["chunk_id", "document", "section", "text"]
 
-# Per-chunk fields kept in the results table. 
-# Chunk text dropped: already in context_text.
+# What we save for each chunk. The text is saved in context_text instead.
 CHUNK_FIELDS = ["rank", "chunk_id", "document", "section", "score"]
 
 QUESTION_FIELDS = [
@@ -30,8 +30,7 @@ QUESTION_FIELDS = [
     "gold_chunk_ids", "gold_answer",
 ]
 
-# Config fields stored per row,
-# row says how it was produced.
+# Settings we save on every row, so we know how the answer was made.
 CONFIG_FIELDS = [
     "answer_endpoint", "embedding_endpoint", "top_k", "temperature", "max_tokens",
 ]
@@ -39,7 +38,7 @@ CONFIG_FIELDS = [
 
 @dataclass(frozen=True)
 class RagConfig:
-    """Defaults match notebooks/03_variant_a. Change here, not per notebook."""
+    """Settings for a run. Change them here, not in the notebooks."""
 
     variant: str = "A"
 
@@ -49,8 +48,7 @@ class RagConfig:
     vs_endpoint: str = "policy_rag_endpoint"
     top_k: int = 3
 
-    # Serving endpoints, names in docs/model_choices.md
-    # those are Unity Catalog model names and don't resolve as endpoints.
+    # The models we use. Use these names, the system.ai.* names do not work here.
     answer_endpoint: str = "databricks-meta-llama-3-3-70b-instruct"
     embedding_endpoint: str = "databricks-gte-large-en"
 
@@ -77,45 +75,45 @@ class RagConfig:
 
 
 def load_questions(path, split=None):
-    """Load the test set from JSON Lines. Lines starting with // are ignored.
+    """Read the questions from the file. Lines that start with // are skipped.
 
-    split="dev" or "final" filters on the question_id prefix. Use it, the final
-    questions are held out until later.
+    split="dev" or split="final" picks which questions to use.
+    Always set it, so we do not use the final questions by mistake.
     """
     path = Path(path)
     if not path.exists():
-        raise FileNotFoundError(f"No question file at {path}")
+        raise FileNotFoundError(f"Can not find the file: {path}")
 
     questions = []
-    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line or line.startswith("//"):
             continue
         try:
-            q = json.loads(line)
+            question = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ValueError(f"{path}:{lineno} is not valid JSON: {exc}") from exc
+            raise ValueError(f"{path}:{line_number} is not valid JSON: {exc}") from exc
 
-        missing = [f for f in QUESTION_FIELDS if f not in q]
+        missing = [field for field in QUESTION_FIELDS if field not in question]
         if missing:
-            raise ValueError(f"{path}:{lineno} is missing: {', '.join(missing)}")
-        if q["in_scope"] and not q["gold_chunk_ids"]:
-            raise ValueError(f"{path}:{lineno} ({q['question_id']}) is in_scope but has "
-                             "no gold_chunk_ids, so retrieval can't be scored.")
-        if not q["in_scope"] and q["gold_chunk_ids"]:
-            raise ValueError(f"{path}:{lineno} ({q['question_id']}) is out of scope but "
-                             "has gold_chunk_ids.")
-        questions.append(q)
+            raise ValueError(f"{path}:{line_number} is missing: {', '.join(missing)}")
+        if question["in_scope"] and not question["gold_chunk_ids"]:
+            raise ValueError(f"{path}:{line_number} ({question['question_id']}) is in scope but has "
+                             "no gold_chunk_ids.")
+        if not question["in_scope"] and question["gold_chunk_ids"]:
+            raise ValueError(f"{path}:{line_number} ({question['question_id']}) is out of scope "
+                             "but has gold_chunk_ids.")
+        questions.append(question)
 
     ids = [q["question_id"] for q in questions]
-    duplicates = sorted({i for i in ids if ids.count(i) > 1})
+    duplicates = sorted({qid for qid in ids if ids.count(qid) > 1})
     if duplicates:
-        raise ValueError(f"Duplicate question_id(s) in {path}: {duplicates}")
+        raise ValueError(f"Same question_id two times in {path}: {duplicates}")
 
     if split:
         questions = [q for q in questions if q["question_id"].startswith(f"{split}_")]
         if not questions:
-            raise ValueError(f"No questions with prefix {split!r} in {path}")
+            raise ValueError(f"No {split!r} questions in {path}")
 
     return questions
 
@@ -124,9 +122,10 @@ def load_questions(path, split=None):
 
 
 class RagPipeline:
-    """Retrieval and generation for one variant. Clients are created on first use.
+    """Search for text and ask the model, for one variant.
 
-    Pass index= and llm_client= to run without a workspace (how this is tested).
+    It connects to Databricks the first time it is needed.
+    In tests we give it fake ones with index= and llm_client=.
     """
 
     def __init__(self, cfg, index=None, llm_client=None):
@@ -170,7 +169,7 @@ class RagPipeline:
         from databricks.sdk.service.serving import ChatMessage, ChatMessageRole
 
         user_prompt = self._build_user_prompt(question, chunks)
-        started = time.perf_counter()
+        start_time = time.perf_counter()
         response = self.llm.serving_endpoints.query(
             name=self.cfg.answer_endpoint,
             messages=[
@@ -184,7 +183,7 @@ class RagPipeline:
         return {
             "answer": response.choices[0].message.content,
             "user_prompt": user_prompt,
-            "latency_ms": int((time.perf_counter() - started) * 1000),
+            "latency_ms": int((time.perf_counter() - start_time) * 1000),
             "prompt_tokens": getattr(usage, "prompt_tokens", None),
             "completion_tokens": getattr(usage, "completion_tokens", None),
         }
@@ -223,56 +222,55 @@ def _build_row(cfg, system_prompt, run_id, run_label, question, result, error):
 
 
 def run_experiment(pipeline, questions, run_label, run_id=None, on_progress=None):
-    """Run every question, one row each.
+    """Ask all questions. One row per question.
 
-    A question that raises is recorded in the `error` column, the run continues, 
-    so one failed call doesn't discard a 40-question (or so) run.
+    If a question fails, we save the error in `error` and go on.
+    Then one error does not stop the whole run.
     """
     run_id = run_id or new_run_id()
     questions = list(questions)
     rows = []
 
-    for position, question in enumerate(questions, start=1):
+    for number, question in enumerate(questions, start=1):
         result, error = None, None
         try:
             result = pipeline.answer(question["question"])
-        except Exception as exc:  # noqa: BLE001 — recorded in the row, not swallowed
+        except Exception as exc:  # noqa: BLE001 - the error is saved in the row
             error = f"{type(exc).__name__}: {exc}"
 
         rows.append(_build_row(pipeline.cfg, pipeline.system_prompt,
                                run_id, run_label, question, result, error))
         if on_progress:
-            on_progress(position, len(questions), rows[-1])
+            on_progress(number, len(questions), rows[-1])
 
     return rows
 
 
 def retrieval_metrics(row):
-    """recall@k and reciprocal rank against the minimal sufficient gold set.
+    """How good the search was: recall@k and reciprocal rank.
 
-    Two gold chunks, one retrieved scores 0.5, that fraction is what makes
-    the multi-section failure visible. None for out-of-scope rows, which are
-    scored on whether the answer declines.
+    Example: the question needs two chunks and we found one. Then recall is 0.5.
+    Out of scope questions have no right chunks, so they get None.
     """
     gold = set(row.get("gold_chunk_ids") or [])
     if not gold:
         return {"recall_at_k": None, "reciprocal_rank": None, "n_gold_retrieved": None}
 
     retrieved = row.get("retrieved_chunk_ids") or []
-    hits = gold & set(retrieved)
-    ranks = [i for i, c in enumerate(retrieved, start=1) if c in gold]
+    found = gold & set(retrieved)
+    ranks = [rank for rank, chunk_id in enumerate(retrieved, start=1) if chunk_id in gold]
 
     return {
-        "recall_at_k": len(hits) / len(gold),
+        "recall_at_k": len(found) / len(gold),
         "reciprocal_rank": 1.0 / ranks[0] if ranks else 0.0,
-        "n_gold_retrieved": len(hits),
+        "n_gold_retrieved": len(found),
     }
 
 
 # Saving
 
-# Declared, not inferred: Spark can't infer the element type of an empty array,
-# so -> run where every question errored would fail to write.
+# We write the table columns by hand. If all questions fail, the lists are
+# empty and Spark can not guess the type, and saving would fail.
 RUNS_SCHEMA = """
     run_id string, run_label string, variant string,
     question_id string, question string, question_type string, in_scope boolean,
@@ -290,7 +288,7 @@ RUNS_SCHEMA = """
 
 
 def save_runs(spark, cfg, rows, table=None):
-    """Append rows to the results table. Variants accumulate side by side."""
+    """Add the rows to the table. All variants go in the same table."""
     if not rows:
         raise ValueError("No rows to save.")
 

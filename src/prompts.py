@@ -1,4 +1,4 @@
-"""Prompts for the two variants. The A/B difference will live here, nowhere else."""
+"""All the prompts. A and B are only different in this file."""
 
 CONTEXT_SEPARATOR = "\n\n---\n\n"
 
@@ -7,9 +7,9 @@ SYSTEM_PROMPT_A = (
     "of Nordljus Consulting AB. Use the context below to answer the question."
 )
 
-# Verbatim from data/policies/04_ai_policy.md, section "Hard rules".
-# Always in Variant B's system prompt, so the rules apply even when
-# retrieval misses that section (see dev_03 in docs/experiment_log.md).
+# Copied from data/policies/04_ai_policy.md, part "Hard rules".
+# B always gets these rules. Then the rules are there even if the search
+# does not find them (see dev_03 in docs/experiment_log.md).
 HARD_RULES = """\
 1. Strictly Confidential information must never be entered into any AI tool.
 2. Confidential information may only be entered into Nordljus Assistant.
@@ -17,9 +17,9 @@ HARD_RULES = """\
 4. AI must never make decisions about hiring, dismissal, salary or the assessment of individual people. AI may be used as support, but the decision must always be made by a human.
 5. Passwords, API keys and other login credentials must never be entered into any AI tool."""
 
-# Verbatim from data/policies/04_ai_policy.md, section "Information classes".
-# The hard rules refer to these classes, so the rules can't be applied without
-# them (dev_03 and dev_07 in the first Variant B dev run, 2026-11-15).
+# Copied from data/policies/04_ai_policy.md, part "Information classes".
+# The hard rules use these classes, so the model needs them too
+# (see dev_03 and dev_07, first Variant B test, 2026-11-15).
 INFORMATION_CLASSES = """\
 - Public: information that has already been published, for example on nordljus.example.
 - Internal: information for employees, for example internal routines and meeting notes without client details.
@@ -27,7 +27,7 @@ INFORMATION_CLASSES = """\
 - Strictly Confidential: sensitive personal data (for example health), payroll lists, security information and information that the client has marked as secret."""
 
 
-# Fixed sentence, so a refusal can be counted exactly instead of interpreted.
+# The same sentence every time. Then it is easy to count.
 REFUSAL_SENTENCE = "The policies do not cover this question."
 
 REFUSAL_INSTRUCTION = (
@@ -44,40 +44,40 @@ CITATION_INSTRUCTION = (
 
 
 def build_system_prompt_b(rules, refusal, citations):
-    """Variant A's prompt plus the Variant B features that are switched on."""
-    parts = [SYSTEM_PROMPT_A]
+    """The prompt from A, plus the B parts we turn on."""
+    prompt_parts = [SYSTEM_PROMPT_A]
     if rules:
-        parts.append(
+        prompt_parts.append(
             "Hard rules from [Policy on the Use of AI at Work > Hard rules]. "
             "They always apply and must never be broken:\n" + HARD_RULES
         )
-        parts.append(
+        prompt_parts.append(
             "Information classes from [Policy on the Use of AI at Work > Information classes]. "
             "The hard rules refer to these classes:\n" + INFORMATION_CLASSES
         )
     if refusal:
-        parts.append(REFUSAL_INSTRUCTION)
+        prompt_parts.append(REFUSAL_INSTRUCTION)
     if citations:
-        parts.append(CITATION_INSTRUCTION)
-    return "\n\n".join(parts)
+        prompt_parts.append(CITATION_INSTRUCTION)
+    return "\n\n".join(prompt_parts)
 
 
 def build_user_prompt_a(question, chunks):
-    """Unlabelled excerpts: labelling them would already nudge towards citing."""
+    """A gets the text with no labels. Labels would make it want to show sources."""
     context = CONTEXT_SEPARATOR.join(chunk["text"] for chunk in chunks)
     return f"Context:\n{context}\n\nQuestion: {question}"
 
 
 def build_user_prompt_b(question, chunks):
-    """Each excerpt gets a label to cite, built from its document and section."""
+    """B gets a label on each text, so it can show the source."""
     context = CONTEXT_SEPARATOR.join(
         f"[{chunk['document']} > {chunk['section']}]\n{chunk['text']}" for chunk in chunks
     )
     return f"Context:\n{context}\n\nQuestion: {question}"
 
 
-# B is the full variant. The B_* variants switch on one feature each (ablation),
-# so the effect of each feature can be measured on its own.
+# B has all three parts. The other B_ variants have only one part each.
+# Then we can see what each part does.
 _VARIANTS = {
     "A": (SYSTEM_PROMPT_A, build_user_prompt_a),
     "B": (build_system_prompt_b(rules=True, refusal=True, citations=True), build_user_prompt_b),
@@ -88,10 +88,10 @@ _VARIANTS = {
 
 
 def get_prompts(variant):
-    """Return (system_prompt, user_prompt_builder)."""
+    """Get the prompts for one variant."""
     if variant not in _VARIANTS:
-        raise ValueError(f"Unknown variant {variant!r}. Expected one of {sorted(_VARIANTS)}.")
-    system_prompt, builder = _VARIANTS[variant]
+        raise ValueError(f"No variant called {variant!r}. Use one of {sorted(_VARIANTS)}.")
+    system_prompt, build_user_prompt = _VARIANTS[variant]
     if system_prompt is None:
-        raise NotImplementedError(f"Variant {variant} has no prompt yet.")
-    return system_prompt, builder
+        raise NotImplementedError(f"Variant {variant} has no prompt.")
+    return system_prompt, build_user_prompt
