@@ -1,29 +1,36 @@
 # Model choices
 
-Decided: 2026-10-27. All models are Databricks-hosted foundation models accessed through Unity Gateway.
+Decided: 2026-10-27. All models run on Databricks.
 
-| Role | Model | Endpoint name |
-|---|---|---|
-| Embedding | GTE Large (English) | `system.ai.gte-large-en` |
-| Answer model (Variant A and B) | Llama 3.3 70B Instruct | `system.ai.meta-llama-3-3-70b-instruct` |
-| LLM judge | gpt-oss-120b | `system.ai.gpt-oss-120b` |
+## The models
 
-## Rationale
+| What | Model | Name in Unity Catalog | Name in the code |
+|---|---|---|---|
+| Embedding | GTE Large (English) | `system.ai.gte-large-en` | `databricks-gte-large-en` |
+| Answers (A and B) | Llama 3.3 70B Instruct | `system.ai.meta-llama-3-3-70b-instruct` | `databricks-meta-llama-3-3-70b-instruct` |
+| Judge | gpt-oss-120b | `system.ai.gpt-oss-120b` | `databricks-gpt-oss-120b` |
 
-- **Embedding: gte-large-en.** The policy documents are in English. Supports up to 8,192 tokens per input, so no policy section is truncated. bge-large-en was not chosen because of its 512-token limit.
-- **Answer model: Llama 3.3 70B Instruct.** Strong instruction following, which Variant B depends on (citations, refusal, hard rules). Widely used in RAG research. Stable version (not updated during the project), which supports reproducibility.
-- **Judge: gpt-oss-120b.** A different model family from the answer model, to reduce the risk of self-preference bias where a judge rates answers from its own model family higher. The judge is validated against manual assessment of a sample.
+## Why we picked them
 
-## Rejected
+- gte-large-en: our rules are in English. It can read 8,192 tokens, so no part gets cut.
+  bge-large-en can only read 512 tokens, so we did not use it.
+- Llama 3.3 70B: it is good at following instructions. B needs that.
+  Many RAG projects use it. It does not change during our project.
+- gpt-oss-120b: it is not the same kind of model as Llama. A judge can like its own
+  kind of answers more, so we picked a different one. We check the judge by hand.
 
-- `deepseek-v4-flash`: marked with a warning in AI Gateway (possibly deprecated or limited).
-- `databricks-genie`: a Databricks assistant, not a general model.
+## Not picked
 
-## Baseline observation (Playground, no RAG)
+- `deepseek-v4-flash`: it had a warning in AI Gateway.
+- `databricks-genie`: a Databricks helper, not a normal model.
 
-Asked Llama 3.3 70B without any policy context:
+## Test without RAG
 
-1. "How many paid vacation days do employees at Nordljus Consulting AB have?" – The model said it has no information about the company. Correct answer according to the policy: 30.
-2. "How many paid vacation days do employees in Sweden get?" – The model answered 25 (statutory minimum, wrong for Nordljus) and added an incorrect detail about "16 public holidays".
+We asked Llama 3.3 70B in the Playground, without the rules:
 
-This illustrates why answers must be grounded in the company's documents.
+1. "How many paid vacation days do employees at Nordljus Consulting AB have?"
+   It did not know. The right answer is 30.
+2. "How many paid vacation days do employees in Sweden get?"
+   It said 25. That is the Swedish law, not Nordljus. It also made up "16 public holidays".
+
+So the model needs the company's rules to answer right.
