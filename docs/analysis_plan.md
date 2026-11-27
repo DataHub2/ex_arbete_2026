@@ -31,7 +31,8 @@ But B shows sources, so we may still guess. We write this as a limitation.
 
 - Groundedness for in scope questions.
 - The 7 out of scope questions: does it say "I don't know"? Does it make up a rule?
-- Does it say "I don't know" when it should answer?
+- Over-refusal: in scope answers that contain the refusal sentence from `src/prompts.py`, word for word. 
+  Counted by `over_refusal` in `src/measures.py`, not graded by the judge.
 - B and B_citations: how many of the sources it shows match the text it got?
 - Search: recall@k and MRR. These should be the same for all variants.
 
