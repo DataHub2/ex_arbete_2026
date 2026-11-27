@@ -397,12 +397,12 @@ def manual_template(rows):
 def blind_template(rows, seed=0):
     """Grade A and B by hand, without knowing which is which.
 
-    The rows are mixed and run_id is changed to item_id.
-    Gives back the rows and a key (item_id -> run_id).
-    Do not look at the key before all grading is done.
+    The rows are mixed. run_id and question_id are replaced by item_id, 
+    so the grader cannot pair up the two answers to the same question. 
+    The key maps item_id back to both. Do not look at the key before all grading is done.
 
-    It is not fully blind: B shows sources and hard rules,
-    so you may still guess that it is B.
+    It is not fully blind: B shows sources and hard rules, and each question
+    appears twice with the same text, so you may still guess.
     """
     mixed_rows = list(rows)
     random.Random(seed).shuffle(mixed_rows)
@@ -410,18 +410,20 @@ def blind_template(rows, seed=0):
     template, key = [], {}
     for number, row in enumerate(mixed_rows, start=1):
         item_id = f"item_{number:03d}"
-        key[item_id] = row["run_id"]
+        key[item_id] = {"run_id": row["run_id"], "question_id": row["question_id"]}
         item = manual_template([row])[0]
-        del item["run_id"]
+        del item["run_id"], item["question_id"]
         template.append({"item_id": item_id, **item})
     return template, key
 
 
 def unblind(manual, key):
-    """Put the graded rows back with their run: {run_id: rows}."""
+    """Put the graded rows back with their run and question: {run_id: rows}."""
     per_run = {}
     for row in manual:
-        per_run.setdefault(key[row["item_id"]], []).append(row)
+        entry = key[row["item_id"]]
+        per_run.setdefault(entry["run_id"], []).append(
+            {**row, "question_id": entry["question_id"]})
     return per_run
 
 
