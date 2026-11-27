@@ -312,3 +312,95 @@ Vote agreement: mean 0.97, lowest 0.67 on `dev_02`.
 **Decision, written into `analysis_plan.md` before the final run:** the ablation
 (B_rules, B_refusal, B_citations) is graded by the judge alone for correctness.
 Groundedness carries the judge's caveat wherever it is reported.
+
+
+
+## 2026-11-27 - Final run, all five variants / N
+ 
+**Setup:** Notebook `04_run_experiment`, one round per variant on the 30 final questions, 
+same index, temperature 0. Then `05_evaluate` with judge v2, three votes
+with the median taken, on all five runs. Nothing in `src/` was changed. 
+The prompts, the judge and the questions are the ones frozen on 2026-11-20.
+ 
+| variant | run_id | n |
+|---|---|---|
+| A | `20261127T174908Z-1d4ad7` | 30 |
+| B | `20261127T175753Z-8be802` | 30 |
+| B_rules | `20261127T180036Z-b48bd7` | 30 |
+| B_refusal | `20261127T180450Z-cddd14` | 30 |
+| B_citations | `20261127T181143Z-de8f54` | 30 |
+ 
+Zero errors in all five runs, zero judge errors in all five gradings.
+ 
+**Results.** In scope n = 23, out of scope n = 7. Judge grades, not hand grades.
+ 
+| variant | recall@k | correct | grounded | declined | invented |
+|---|---|---|---|---|---|
+| A | 0.76 | 0.57 (13) | 0.57 (13) | 0.86 (6) | 0.14 (1) |
+| B_refusal | 0.76 | 0.48 (11) | 0.43 (10) | 1.00 (7) | 0.00 (0) |
+| B_citations | 0.76 | 0.61 (14) | 0.78 (18) | 0.86 (6) | 0.00 (0) |
+| B_rules | 0.76 | 0.70 (16) | 0.78 (18) | 0.86 (6) | 0.14 (1) |
+| B | 0.76 | 0.78 (18) | 0.87 (20) | 1.00 (7) | 0.00 (0) |
+ 
+Over-refusal, how often a variant gives the refusal sentence on an in scope question:
+ 
+| variant | refused |
+|---|---|
+| A | 0 of 23 |
+| B | 3 of 23 (0.13) |
+| B_rules | 0 of 23 |
+| B_refusal | 8 of 23 (0.35) |
+| B_citations | 0 of 23 |
+ 
+The ablation rows in this table are extra (exploratory), added after the final run.
+ 
+**Observations:**
+ 
+1. **The search is the same in all five runs.** recall@k is 0.76 everywhere, and the
+   same in every question type. The plan predicted this. It means the prompt is the
+   only thing that changed, and that no run contaminated another.
+2. **B is better than A.** Correct 0.57 to 0.78, grounded 0.57 to 0.87, invented
+   rules 0.14 to 0.00. These are judge grades. The hand grades decide.
+3. **The hard rules are what help.** The rules alone take correct from 0.57 to 0.70.
+   The citations alone take grounded from 0.57 to 0.78 but barely move correct.
+4. **The refusal sentence alone is worse than no prompt at all.** B_refusal gets
+   correct 0.48, below A. It refuses 8 of 23 questions that do have an answer. Given
+   a ready made way out and no statement of what is covered, the model takes the way out.
+5. **The parts are not independent.** With the rules added, over-refusal falls from
+   8 of 23 to 3 of 23, and correct rises from 0.48 to 0.78. The rules say what is
+   covered, so the refusal sentence stops firing on in scope questions. B is better
+   than any single part, and one part on its own is harmful.
+6. **The over-refusal measure cannot compare A.** It counts the exact sentence
+   "The policies do not cover this question." Only B and B_refusal were given that
+   sentence, so A can not produce it. A's 0 of 23 is not "A never over-refuses":
+   A refuses in its own words on `final_12`, `final_13` and `final_19`. The measure
+   compares B with B_refusal. It does not compare either with A. Limitation.
+7. **The 7 out of scope questions can not support a test.** A already declines 6 of
+   them. Even if B declines all 7 that is one discordant pair, and McNemar can never
+   reach significance on one pair. The refusal result is reported as shares only, with
+   no test. Limitation.
+8. **B's remaining errors sit where the search failed.** B gets 5 of 23 wrong, and
+   about 3 of those are over-refusals, mostly on `multi_section`, where recall@k is
+   0.58. With `top_k = 3` the search can not reach three different sections at once.
+   This is a limit of the setup, not of the prompt, and B does not fix it.
+**Also done:** the five runs were logged to MLflow after the fact from
+`experiment_runs`, in notebook `07_mlflow_backfill`. The default notebook experiment
+belonged to a deleted notebook, so the runs are under `/Users/<user>/rag_experiments`
+and their MLflow start times are the time of logging, not the time of the run. The
+real time is in the `run_id` parameter.
+
+**Blind export, and a flaw in it:** the first export leaked the variant.
+`judge_context` puts the hard rules and the information classes in front of
+the context when the row's system prompt holds them, under the heading
+"(in the system prompt)", so every B row was labelled. Nothing had been graded yet, 
+the export was rebuilt with a neutral heading before the files went out.
+The blinding is still only partial: the rules block appears on B rows and not on
+A rows, B's answers carry citations, and each question appears twice, once per
+variant. Graders are told not to try to identify the variant. The grading is
+masked, not blind, and this is written as a limitation.
+
+**Next:** blind grading files for A and B are exported, 60 items per grader, in
+`manual_final`. Two graders work alone, Nasser (I) will decide disagreements. The key stays
+closed until both are done. `citation_accuracy` and `mcnemar` are promised in
+`analysis_plan.md` and are not written yet. MRR is promised too and was not kept from the runs, 
+but can be recomputed from `experiment_runs`.
